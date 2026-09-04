@@ -42,6 +42,13 @@ export default async function CityPage() {
       supabase.from("building_links").select("*").eq("city_id", city.id),
     ]);
 
+  const { data: activity } = await supabase
+    .from("activity")
+    .select("id, headline")
+    .eq("city_id", city.id)
+    .order("created_at", { ascending: false })
+    .limit(12);
+
   const titleById = new Map((buildings ?? []).map((b) => [b.id, b]));
 
   // Only routes that have actually been solved can be drawn; the stale ones
@@ -99,6 +106,7 @@ export default async function CityPage() {
         routes={solved}
         routeLinks={routeLinks}
         staleRoutes={staleRoutes}
+        headlines={(activity ?? []).map((a) => ({ id: a.id, text: a.headline }))}
       />
     </div>
   );

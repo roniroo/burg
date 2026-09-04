@@ -80,7 +80,7 @@ check("found a free lot to aim at", !!target, JSON.stringify(target));
 // Convert the tile to a screen point using the page's own camera.
 const point = await page.evaluate(
   ({ tx, ty }: { tx: number; ty: number }) => {
-    const world = document.querySelector('[role="application"] > div') as HTMLElement;
+    const world = document.querySelector('[data-world]') as HTMLElement;
     const m = new DOMMatrixReadOnly(getComputedStyle(world).transform);
     const sx = (tx - ty) * 32;
     const sy = (tx + ty) * 16 + 16;
@@ -141,7 +141,7 @@ const TARGET = { tx: 24, ty: 22 };
 const screenFor = (t: { tx: number; ty: number }) =>
   page.evaluate(
     ({ tx, ty }: { tx: number; ty: number }) => {
-      const world = document.querySelector('[role="application"] > div') as HTMLElement;
+      const world = document.querySelector('[data-world]') as HTMLElement;
       const m = new DOMMatrixReadOnly(getComputedStyle(world).transform);
       const rect = (world.parentElement as HTMLElement).getBoundingClientRect();
       return {

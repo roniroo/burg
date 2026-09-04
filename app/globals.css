@@ -369,3 +369,34 @@
     box-shadow: none;
   }
 }
+
+@layer base {
+  /* ==========================================================================
+     The hour of the day
+     --------------------------------------------------------------------------
+     After dusk the windows and lamps come on. The sprite registry already
+     paints windows with --face-accent, so switching that one token lights
+     every building at once rather than needing a second set of sprites.
+     ========================================================================== */
+
+  [data-lamps="on"] {
+    --face-accent: var(--color-gold);
+  }
+
+  /* Night flattens the contrast between lit and shaded faces, the way real
+     dusk does, so the city reads as one silhouette rather than many boxes. */
+  [data-phase="night"] {
+    --face-wall-lit: color-mix(in srgb, var(--biome-wall) 55%, var(--color-deep));
+    --face-wall-shade: color-mix(in srgb, var(--biome-wall) 35%, var(--color-deep));
+    --face-roof-lit: color-mix(in srgb, var(--biome-roof) 55%, var(--color-deep));
+    --face-roof-shade: color-mix(in srgb, var(--biome-roof) 35%, var(--color-deep));
+    --face-ground-lit: color-mix(in srgb, var(--biome-ground) 55%, var(--color-deep));
+    --face-ground-shade: color-mix(in srgb, var(--biome-ground) 40%, var(--color-deep));
+  }
+
+  [data-phase="dusk"],
+  [data-phase="dawn"] {
+    --face-wall-lit: color-mix(in srgb, var(--biome-wall) 82%, var(--color-clay));
+    --face-roof-lit: color-mix(in srgb, var(--biome-roof) 82%, var(--color-clay));
+  }
+}

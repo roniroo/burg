@@ -65,7 +65,7 @@ await page.waitForTimeout(200);
 check("minus steps back to 1x", (await zoomBadge.textContent())?.trim() === "1×");
 
 // transform must land on whole pixels
-const transform = await page.locator('[role="application"] > div').first().evaluate((el) => getComputedStyle(el).transform);
+const transform = await page.locator("[data-world]").first().evaluate((el) => getComputedStyle(el).transform);
 const nums = transform.match(/-?\d+\.?\d*/g) ?? [];
 const translates = nums.slice(4).map(Number);
 check("camera transform is pixel-snapped", translates.every((n) => Number.isInteger(n)), transform);

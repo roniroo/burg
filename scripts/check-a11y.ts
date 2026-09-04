@@ -66,7 +66,7 @@ for (const reduced of [false, true]) {
     // Under reduced motion the camera must cut, not animate.
     await page.goto("http://localhost:3000/city", { waitUntil: "networkidle" });
     await page.waitForTimeout(300);
-    const world = page.locator('[role="application"] > div').first();
+    const world = page.locator("[data-world]").first();
     // The global stylesheet clamps every transition to 0.001ms, so the
     // computed duration is always effectively zero. The meaningful check is
     // that the component's own reduced-motion branch ran and wrote

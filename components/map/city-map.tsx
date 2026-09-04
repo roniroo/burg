@@ -23,6 +23,8 @@ import { RoadLayer, type MapRoute } from "./road-layer";
 import { ConnectionsPanel, type RouteLink } from "./connections-panel";
 import { solveStaleRoutes } from "@/lib/actions/roads";
 import { raiseBuilding } from "@/lib/anim";
+import { AmbientLayer, useDaylight } from "./ambient";
+import { Ticker, type Headline } from "./ticker";
 import {
   SPRITE_FOR_TYPE,
   TERRAIN_FILL,
@@ -45,6 +47,7 @@ type Props = {
   routes: MapRoute[];
   routeLinks: Record<string, RouteLink[]>;
   staleRoutes: number;
+  headlines: Headline[];
 };
 
 type Camera = { x: number; y: number; zoom: Zoom };
@@ -66,7 +69,9 @@ export function CityMap({
   routes,
   routeLinks,
   staleRoutes,
+  headlines,
 }: Props) {
+  const light = useDaylight();
   const router = useRouter();
   const reduceMotion = useReducedMotion();
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -570,12 +575,17 @@ export function CityMap({
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
       onWheel={onWheel}
-      className={`relative h-full w-full touch-none overflow-hidden bg-sky select-none ${
+      className={`relative h-full w-full touch-none overflow-hidden select-none ${
         draft ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"
       }`}
     >
+      <AmbientLayer light={light} />
+
       {/* The world. One transform for the whole map, snapped to whole pixels. */}
       <div
+        data-world
+        data-phase={light.phase}
+        data-lamps={light.lampsOn ? "on" : "off"}
         className="absolute left-0 top-0 origin-top-left"
         style={{
           transform: `translate(${snap(camera.x)}px, ${snap(camera.y)}px) scale(${camera.zoom})`,
@@ -758,6 +768,10 @@ export function CityMap({
       {/* Zoom readout / controls */}
       <div className="pointer-events-none absolute bottom-3 right-3 border-2 border-ink bg-paper px-2 py-1 font-pixel text-[10px] uppercase text-ink shadow-hard">
         {camera.zoom}×
+      </div>
+
+      <div data-map-chrome className="absolute bottom-0 left-0 right-0 z-20">
+        <Ticker headlines={headlines} />
       </div>
     </div>
   );

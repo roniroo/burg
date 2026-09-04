@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getCurrentCity } from "@/lib/queries";
+import { CommandPalette } from "@/components/command-palette";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const city = await getCurrentCity();
@@ -26,9 +27,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           >
             Directory
           </Link>
+          <span className="hidden font-pixel text-[10px] uppercase text-stone sm:inline">⌘K</span>
         </nav>
       </header>
       <main className="min-h-0 flex-1 overflow-auto">{children}</main>
+      {city ? <CommandPalette cityId={city.id} /> : null}
     </div>
   );
 }
