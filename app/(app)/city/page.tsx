@@ -38,6 +38,7 @@ export default async function CityPage() {
   return (
     <div className="h-full">
       <CityMap
+        cityId={city.id}
         cityWidth={city.width}
         cityHeight={city.height}
         neighborhoods={neighborhoods ?? []}

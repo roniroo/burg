@@ -8,6 +8,7 @@ import {
   TILE_W,
   depthFor,
   isInRegion,
+  screenToTile,
   snap,
   stepZoom,
   tileToScreen,
@@ -15,6 +16,10 @@ import {
   worldBounds,
   type Zoom,
 } from "@/lib/iso";
+import { canPlace, REJECTION_MESSAGE, type Terrain } from "@/lib/placement";
+import { createBuilding, createNeighborhood } from "@/lib/actions/city";
+import { BuildBar, type BuildDraft } from "./build-bar";
+import { raiseBuilding } from "@/lib/anim";
 import {
   SPRITE_FOR_TYPE,
   TERRAIN_FILL,
@@ -28,6 +33,7 @@ import { Sprite } from "./sprite";
 import type { MapBuilding, MapNeighborhood, MapTile } from "./types";
 
 type Props = {
+  cityId: string;
   cityWidth: number;
   cityHeight: number;
   neighborhoods: MapNeighborhood[];
@@ -44,7 +50,7 @@ type Camera = { x: number; y: number; zoom: Zoom };
  * that a screen reader can reach and motion can animate. A personal city is a
  * few hundred tiles, not a few thousand, and offscreen tiles are culled.
  */
-export function CityMap({ cityWidth, cityHeight, neighborhoods, buildings, tiles }: Props) {
+export function CityMap({ cityId, cityWidth, cityHeight, neighborhoods, buildings, tiles }: Props) {
   const router = useRouter();
   const reduceMotion = useReducedMotion();
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -53,6 +59,12 @@ export function CityMap({ cityWidth, cityHeight, neighborhoods, buildings, tiles
   const [size, setSize] = useState({ width: 1024, height: 640 });
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
   const [entering, setEntering] = useState<string | null>(null);
+
+  // Build mode. Null when not building.
+  const [draft, setDraft] = useState<BuildDraft | null>(null);
+  const [ghost, setGhost] = useState<{ x: number; y: number } | null>(null);
+  const [buildHint, setBuildHint] = useState<string | null>(null);
+  const [raising, setRaising] = useState<{ x: number; y: number } | null>(null);
 
   /**
    * Frame the inhabited part of the city, not the whole grid. A 40x40 map is
@@ -151,6 +163,62 @@ export function CityMap({ cityWidth, cityHeight, neighborhoods, buildings, tiles
     return out;
   }, [range, tileByKey, hoodAt]);
 
+  /**
+   * Can a building stand on this tile?
+   *
+   * A function rather than a memo over `ghost`, because a click has to judge
+   * the tile it just computed -- React state set in the same event has not
+   * been applied yet, and validating the previous ghost silently refused
+   * perfectly good lots.
+   *
+   * Uses the same pure module the server validates with, so the ghost never
+   * promises a placement the action would refuse.
+   */
+  const verdictFor = useCallback(
+    (tile: { x: number; y: number }) => {
+      const hood = neighborhoods.find((n) => isInRegion(tile.x, tile.y, n));
+      if (!hood) return { ok: false as const, reason: "outside-region" as const, hood: null };
+
+      const terrainAt = (x: number, y: number): Terrain =>
+        (tileByKey.get(`${x},${y}`)?.terrain as Terrain | undefined) ?? "grass";
+
+      const verdict = canPlace({
+        footprint: { tile_x: tile.x, tile_y: tile.y, footprint_w: 1, footprint_h: 1 },
+        region: hood,
+        occupied: buildings.map((b) => ({
+          tile_x: b.tile_x,
+          tile_y: b.tile_y,
+          footprint_w: b.footprint_w,
+          footprint_h: b.footprint_h,
+        })),
+        terrainAt,
+        city: { width: cityWidth, height: cityHeight },
+      });
+
+      return verdict.ok ? { ok: true as const, hood } : { ...verdict, hood };
+    },
+    [neighborhoods, tileByKey, buildings, cityWidth, cityHeight],
+  );
+
+  const ghostVerdict = useMemo(
+    () => (ghost && draft?.kind === "building" ? verdictFor(ghost) : null),
+    [ghost, draft, verdictFor],
+  );
+
+  /** A district may not run off the map or overlap another district. */
+  const districtVerdict = useMemo(() => {
+    if (!ghost || draft?.kind !== "district") return false;
+    if (ghost.x < 0 || ghost.y < 0) return false;
+    if (ghost.x + draft.width > cityWidth || ghost.y + draft.height > cityHeight) return false;
+    return !neighborhoods.some(
+      (n) =>
+        ghost.x < n.origin_x + n.width &&
+        n.origin_x < ghost.x + draft.width &&
+        ghost.y < n.origin_y + n.height &&
+        n.origin_y < ghost.y + draft.height,
+    );
+  }, [ghost, draft, neighborhoods, cityWidth, cityHeight]);
+
   const visibleBuildings = useMemo(
     () =>
       buildings.filter(
@@ -167,8 +235,21 @@ export function CityMap({ cityWidth, cityHeight, neighborhoods, buildings, tiles
   const dragState = useRef<{ pointerId: number; startX: number; startY: number; camX: number; camY: number } | null>(null);
 
   function onPointerDown(event: React.PointerEvent<HTMLDivElement>) {
-    // Only the background pans; clicks on buildings must still register.
-    if ((event.target as HTMLElement).closest("[data-building]")) return;
+    if (draft) {
+      if ((event.target as HTMLElement).closest("[data-map-chrome]")) return;
+      // In build mode a press places rather than pans.
+      const tile = tileAtPointer(event.clientX, event.clientY);
+      if (tile) {
+        setGhost(tile);
+        void (draft.kind === "building" ? placeBuilding(tile) : placeDistrict(tile));
+      }
+      return;
+    }
+
+    // Only the background pans. Anything interactive is excluded, because
+    // setPointerCapture on this container retargets the pointerup and the
+    // child's click event never fires.
+    if ((event.target as HTMLElement).closest("[data-building], [data-map-chrome]")) return;
     dragState.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -179,7 +260,25 @@ export function CityMap({ cityWidth, cityHeight, neighborhoods, buildings, tiles
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
+  /** Screen point -> tile, undoing the camera transform. */
+  const tileAtPointer = useCallback(
+    (clientX: number, clientY: number) => {
+      const rect = viewportRef.current?.getBoundingClientRect();
+      if (!rect) return null;
+      const worldX = (clientX - rect.left - camera.x) / camera.zoom;
+      const worldY = (clientY - rect.top - camera.y) / camera.zoom;
+      return screenToTile(worldX, worldY);
+    },
+    [camera],
+  );
+
   function onPointerMove(event: React.PointerEvent<HTMLDivElement>) {
+    if (draft) {
+      // The ghost snaps between tiles rather than sliding with the cursor.
+      const tile = tileAtPointer(event.clientX, event.clientY);
+      if (tile && (tile.x !== ghost?.x || tile.y !== ghost?.y)) setGhost(tile);
+    }
+
     const drag = dragState.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     setCamera((c) => ({
@@ -249,6 +348,7 @@ export function CityMap({ cityWidth, cityHeight, neighborhoods, buildings, tiles
       y: Math.min(cityHeight - 1, Math.max(0, from.y + axis.dy)),
     };
     setCursor(next);
+    if (draft) setGhost(next);
 
     const screen = tileToScreen(next.x, next.y);
     setCamera((c) => {
@@ -273,11 +373,20 @@ export function CityMap({ cityWidth, cityHeight, neighborhoods, buildings, tiles
     }
 
     if ((event.key === "Enter" || event.key === " ") && cursor) {
-      const building = buildingAt(cursor.x, cursor.y);
-      if (building) {
-        event.preventDefault();
-        enterBuilding(building.id);
+      event.preventDefault();
+      if (draft) {
+        void (draft.kind === "building" ? placeBuilding(cursor) : placeDistrict(cursor));
+        return;
       }
+      const building = buildingAt(cursor.x, cursor.y);
+      if (building) enterBuilding(building.id);
+      return;
+    }
+
+    if (event.key === "Escape" && draft) {
+      event.preventDefault();
+      setDraft(null);
+      setGhost(null);
       return;
     }
 
@@ -287,6 +396,85 @@ export function CityMap({ cityWidth, cityHeight, neighborhoods, buildings, tiles
       setCamera((c) => ({ ...c, zoom: stepZoom(c.zoom, -1) }));
     }
   }
+
+  /**
+   * Place a building: validate, create, then run the construction sequence
+   * before opening the new artifact.
+   */
+  const placeBuilding = useCallback(
+    async (tile: { x: number; y: number }) => {
+      if (!draft || draft.kind !== "building") return;
+
+      const verdict = verdictFor(tile);
+      if (!verdict.ok) {
+        setBuildHint(REJECTION_MESSAGE[verdict.reason]);
+        return;
+      }
+      const hood = verdict.hood;
+
+      const title = draft.title.trim() || `New ${BUILDING_NOUN[draft.artifactType]}`;
+      setBuildHint("Building…");
+      setRaising(tile);
+
+      const result = await createBuilding({
+        neighborhoodId: hood.id,
+        title,
+        artifactType: draft.artifactType,
+        tileX: tile.x,
+        tileY: tile.y,
+      });
+
+      if (!result.ok) {
+        setRaising(null);
+        setBuildHint(result.error);
+        return;
+      }
+
+      // The scaffold has been on screen since the click; give it its frames
+      // before the interior takes over.
+      if (!reduceMotion) await new Promise((resolve) => window.setTimeout(resolve, 520));
+
+      setDraft(null);
+      setGhost(null);
+      setRaising(null);
+      router.push(`/b/${result.data.id}`);
+    },
+    [draft, verdictFor, reduceMotion, router],
+  );
+
+  /** Found a district: place its top corner at the given tile. */
+  const placeDistrict = useCallback(
+    async (tile: { x: number; y: number }) => {
+      if (!draft || draft.kind !== "district") return;
+      if (!draft.name.trim()) {
+        setBuildHint("Give the district a name first.");
+        return;
+      }
+
+      setBuildHint("Surveying…");
+      const result = await createNeighborhood({
+        cityId,
+        name: draft.name.trim(),
+        description: "",
+        biome: draft.biome,
+        originX: tile.x,
+        originY: tile.y,
+        width: draft.width,
+        height: draft.height,
+      });
+
+      if (!result.ok) {
+        setBuildHint(result.error);
+        return;
+      }
+
+      setDraft(null);
+      setGhost(null);
+      setBuildHint(null);
+      router.refresh();
+    },
+    [draft, cityId, router],
+  );
 
   /**
    * Squash, then hand off to the interior. Under reduced motion this is an
@@ -316,7 +504,9 @@ export function CityMap({ cityWidth, cityHeight, neighborhoods, buildings, tiles
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
       onWheel={onWheel}
-      className="relative h-full w-full cursor-grab touch-none overflow-hidden bg-sky select-none active:cursor-grabbing"
+      className={`relative h-full w-full touch-none overflow-hidden bg-sky select-none ${
+        draft ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"
+      }`}
     >
       {/* The world. One transform for the whole map, snapped to whole pixels. */}
       <div
@@ -404,7 +594,69 @@ export function CityMap({ cityWidth, cityHeight, neighborhoods, buildings, tiles
             </button>
           );
         })}
+
+        {/* Ghost sprite and the lot it would occupy */}
+        {draft?.kind === "building" && ghost ? (
+          <GhostLot
+            tile={ghost}
+            valid={ghostVerdict?.ok ?? false}
+            artifactType={draft.artifactType}
+            biome={ghostVerdict?.hood?.biome}
+          />
+        ) : null}
+
+        {draft?.kind === "district" && ghost ? (
+          <GhostRegion
+            origin={ghost}
+            width={draft.width}
+            height={draft.height}
+            biome={draft.biome}
+            valid={districtVerdict}
+          />
+        ) : null}
+
+        {/* Construction site, from the click until the interior opens */}
+        {raising ? <Scaffold tile={raising} reduceMotion={reduceMotion} /> : null}
       </div>
+
+      {/* Build mode dims the world so the ghost reads clearly. */}
+      {draft ? (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0"
+          style={{ backgroundColor: "var(--color-ink)", opacity: 0.22 }}
+        />
+      ) : null}
+
+      {draft ? (
+        <div data-map-chrome className="pointer-events-none absolute bottom-3 left-3 z-10 max-w-[min(46rem,calc(100%-1.5rem))]">
+          <BuildBar
+            draft={draft}
+            onChange={setDraft}
+            onCancel={() => {
+              setDraft(null);
+              setGhost(null);
+              setBuildHint(null);
+            }}
+            hint={
+              buildHint ??
+              (ghostVerdict && !ghostVerdict.ok ? REJECTION_MESSAGE[ghostVerdict.reason] : null)
+            }
+          />
+        </div>
+      ) : (
+        <button
+          type="button"
+          data-map-chrome
+          onClick={() => {
+            setDraft({ kind: "building", artifactType: "doc", title: "" });
+            setBuildHint(null);
+          }}
+          className="absolute left-3 top-3 z-10 border-2 border-ink bg-amber px-3 py-1 font-pixel text-[10px] uppercase shadow-hard"
+        >
+          Build
+        </button>
+      )}
 
       {/* Zoom readout / controls */}
       <div className="pointer-events-none absolute bottom-3 right-3 border-2 border-ink bg-paper px-2 py-1 font-pixel text-[10px] uppercase text-ink shadow-hard">
@@ -423,3 +675,165 @@ const SPRITE_FOR_TYPE_VALUES: Record<SpriteKey, true> = {
   studio: true,
   hoarding: true,
 };
+
+/** The ghost: a translucent sprite on the lot under the cursor, with the
+ *  lot itself pulsing green when it can be built on and red when it cannot. */
+function GhostLot({
+  tile,
+  valid,
+  artifactType,
+  biome,
+}: {
+  tile: { x: number; y: number };
+  valid: boolean;
+  artifactType: MapBuilding["artifact_type"];
+  biome: string | undefined;
+}) {
+  const screen = tileToScreen(tile.x, tile.y);
+  const geometry = buildingSprite(SPRITE_FOR_TYPE[artifactType], 1, 1, 1, 1);
+
+  return (
+    <>
+      <div
+        aria-hidden
+        className="pointer-events-none absolute"
+        style={{
+          left: snap(screen.x - TILE_W / 2),
+          top: snap(screen.y),
+          width: TILE_W,
+          height: TILE_H,
+          zIndex: tile.x + tile.y + 900,
+        }}
+      >
+        <svg width={TILE_W} height={TILE_H} className="pixelated block" shapeRendering="crispEdges">
+          <polygon
+            points={TILE_DIAMOND}
+            fill={valid ? "var(--color-lime)" : "var(--color-brick)"}
+            fillOpacity={0.75}
+            stroke="var(--color-ink)"
+            strokeWidth={2}
+          />
+        </svg>
+      </div>
+
+      <div
+        aria-hidden
+        data-biome={biome}
+        className="pointer-events-none absolute"
+        style={{
+          left: snap(screen.x - geometry.originX),
+          top: snap(screen.y - geometry.originY),
+          width: geometry.width,
+          height: geometry.height,
+          zIndex: tile.x + tile.y + 901,
+          opacity: valid ? 0.75 : 0.35,
+        }}
+      >
+        <Sprite geometry={geometry} />
+      </div>
+    </>
+  );
+}
+
+/** Four stepped frames of scaffold, then a dust puff. */
+function Scaffold({ tile, reduceMotion }: { tile: { x: number; y: number }; reduceMotion: boolean }) {
+  const screen = tileToScreen(tile.x, tile.y);
+  const scaffoldRef = useRef<HTMLDivElement>(null);
+  const dustRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (reduceMotion) return;
+    if (scaffoldRef.current && dustRef.current) {
+      void raiseBuilding(scaffoldRef.current, dustRef.current);
+    }
+  }, [reduceMotion]);
+
+  const geometry = buildingSprite("hoarding", 1, 1, 1, 1);
+
+  return (
+    <>
+      <div
+        ref={scaffoldRef}
+        aria-hidden
+        className="pointer-events-none absolute origin-bottom"
+        style={{
+          left: snap(screen.x - geometry.originX),
+          top: snap(screen.y - geometry.originY),
+          width: geometry.width,
+          height: geometry.height,
+          zIndex: tile.x + tile.y + 902,
+        }}
+      >
+        <Sprite geometry={geometry} />
+      </div>
+      <div
+        ref={dustRef}
+        aria-hidden
+        className="pointer-events-none absolute"
+        style={{
+          left: snap(screen.x - TILE_W / 2),
+          top: snap(screen.y - 6),
+          width: TILE_W,
+          height: TILE_H,
+          zIndex: tile.x + tile.y + 903,
+          opacity: 0,
+        }}
+      >
+        <svg width={TILE_W} height={TILE_H} className="pixelated block" shapeRendering="crispEdges">
+          <polygon points={TILE_DIAMOND} fill="var(--color-mist)" />
+        </svg>
+      </div>
+    </>
+  );
+}
+
+/** The district ghost: every tile the new region would claim. */
+function GhostRegion({
+  origin,
+  width,
+  height,
+  biome,
+  valid,
+}: {
+  origin: { x: number; y: number };
+  width: number;
+  height: number;
+  biome: string;
+  valid: boolean;
+}) {
+  const tiles: Array<{ x: number; y: number }> = [];
+  for (let dy = 0; dy < height; dy++) {
+    for (let dx = 0; dx < width; dx++) tiles.push({ x: origin.x + dx, y: origin.y + dy });
+  }
+
+  return (
+    <div aria-hidden data-biome={biome}>
+      {tiles.map((tile) => {
+        const screen = tileToScreen(tile.x, tile.y);
+        return (
+          <div
+            key={`g-${tile.x}-${tile.y}`}
+            className="pointer-events-none absolute"
+            style={{
+              left: snap(screen.x - TILE_W / 2),
+              top: snap(screen.y),
+              width: TILE_W,
+              height: TILE_H,
+              zIndex: tile.x + tile.y + 900,
+            }}
+          >
+            <svg width={TILE_W} height={TILE_H} className="pixelated block" shapeRendering="crispEdges">
+              <polygon
+                points={TILE_DIAMOND}
+                fill={valid ? "var(--biome-ground)" : "var(--color-brick)"}
+                fillOpacity={0.7}
+                stroke="var(--color-ink)"
+                strokeWidth={1}
+              />
+            </svg>
+          </div>
+        );
+      })}
+    </div>
+  );
+}

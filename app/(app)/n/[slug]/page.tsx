@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { BUILDING_GLYPH, BUILDING_NOUN } from "@/lib/queries";
+import { BUILDING_GLYPH, BUILDING_NOUN } from "@/lib/artifacts";
+import { RegionForm } from "@/components/map/region-form";
 
 /** Neighbourhood view. Phase 1 replaces the list with a zoomed-in map region. */
 export default async function NeighborhoodPage({ params }: { params: Promise<{ slug: string }> }) {
@@ -34,6 +35,14 @@ export default async function NeighborhoodPage({ params }: { params: Promise<{ s
         {hood.origin_y})
       </p>
       <p className="mt-2 font-body text-sm text-slate">{hood.description}</p>
+
+      <RegionForm
+        neighborhoodId={hood.id}
+        originX={hood.origin_x}
+        originY={hood.origin_y}
+        width={hood.width}
+        height={hood.height}
+      />
 
       <ul className="mt-6 flex flex-col gap-2">
         {(buildings ?? []).map((b) => (
