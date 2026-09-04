@@ -158,14 +158,27 @@ npx tsx scripts/dev-session.ts you@example.com > /tmp/burg-cookie.txt
 npm run check
 ```
 
+`npm run check` reseeds the demo city first, because several suites consume
+seeded data — promotion turns a note into a building, for one. It is
+destructive to the demo city and nothing else.
+
 Individual suites:
 
 ```bash
-npx tsx scripts/check-map.ts                    # map interactions
-npx tsx scripts/check-doc.ts <doc-building-id>  # editor, autosave, [[links]]
+npx tsx scripts/check-map.ts                    # camera, keyboard, zoom ladder
+npx tsx scripts/check-doc.ts <doc-id>           # editor, autosave, [[links]]
 npx tsx scripts/check-newsstand.ts <kiosk-id>   # link rack + OpenGraph fetch
+npx tsx scripts/check-warehouse.ts <table-id>   # grid, views, row panel, paste
+npx tsx scripts/check-board.ts <board-id>       # notes, modes, promotion
+npx tsx scripts/check-build.ts                  # build mode, districts, regions
+npx tsx scripts/check-roads.ts                  # solving, gates, LOD, paving
+npx tsx scripts/check-life.ts                   # day/night, ticker, ⌘K
+npx tsx scripts/check-studio.ts                 # whiteboard tools and saving
 npx tsx scripts/check-a11y.ts                   # axe, normal + reduced motion
 ```
+
+A browser check that fails an assertion still exits 0 — the PASS/FAIL lines are
+the source of truth, not the exit code.
 
 `npx tsx scripts/dev-ids.ts` prints the seeded building ids by type.
 
@@ -190,6 +203,13 @@ The automated checks do not cover feel. Worth looking at yourself:
 - **Keyboard only.** Tab to the map, then arrow keys — the cursor moves tile by
   tile along screen axes, and Enter opens whatever is under it. `/directory`
   must reach everything the map can.
+- **The day/night cycle** follows your own clock, so the city is dark when it
+  is dark where you are. To see the other end of the day without waiting,
+  change your system clock, or read `lib/daylight.ts`, which is a pure function
+  of the time you hand it.
+- **Roads.** Open the map and give it a few seconds: any route the database has
+  flagged stale is solved on load and paves itself in. Add a `[[link]]` in a
+  document and come back to the map to watch a new road appear.
 
 ---
 

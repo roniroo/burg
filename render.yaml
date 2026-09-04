@@ -1,0 +1,37 @@
+# Burg on Render: one Next.js web service. Postgres, Auth and Storage come from
+# Supabase, so there is nothing else to run.
+#
+# NEXT_PUBLIC_* values are baked into the client bundle at build time, so they
+# must be present during the build, not only at runtime. They are marked
+# sync: false so the real values are set in the Render dashboard rather than
+# committed here.
+services:
+  - type: web
+    name: burg
+    runtime: node
+    plan: starter
+    region: oregon
+    branch: main
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    healthCheckPath: /sign-in
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NEXT_TELEMETRY_DISABLED
+        value: "1"
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      # The absolute origin auth redirects are built from. Must match the
+      # deployed URL exactly, and must also be listed in Supabase under
+      # Authentication → URL Configuration → Redirect URLs.
+      - key: NEXT_PUBLIC_SITE_URL
+        sync: false
+      # Server-only. Not needed at runtime by the app itself -- first sign-in
+      # seeding runs as the signed-in user through RLS -- but set it if you
+      # want to run the CLI seeder against production.
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
