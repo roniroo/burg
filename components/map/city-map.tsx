@@ -19,6 +19,9 @@ import {
 import { canPlace, REJECTION_MESSAGE, type Terrain } from "@/lib/placement";
 import { createBuilding, createNeighborhood } from "@/lib/actions/city";
 import { BuildBar, type BuildDraft } from "./build-bar";
+import { RoadLayer, type MapRoute } from "./road-layer";
+import { ConnectionsPanel, type RouteLink } from "./connections-panel";
+import { solveStaleRoutes } from "@/lib/actions/roads";
 import { raiseBuilding } from "@/lib/anim";
 import {
   SPRITE_FOR_TYPE,
@@ -39,6 +42,9 @@ type Props = {
   neighborhoods: MapNeighborhood[];
   buildings: MapBuilding[];
   tiles: MapTile[];
+  routes: MapRoute[];
+  routeLinks: Record<string, RouteLink[]>;
+  staleRoutes: number;
 };
 
 type Camera = { x: number; y: number; zoom: Zoom };
@@ -50,7 +56,17 @@ type Camera = { x: number; y: number; zoom: Zoom };
  * that a screen reader can reach and motion can animate. A personal city is a
  * few hundred tiles, not a few thousand, and offscreen tiles are culled.
  */
-export function CityMap({ cityId, cityWidth, cityHeight, neighborhoods, buildings, tiles }: Props) {
+export function CityMap({
+  cityId,
+  cityWidth,
+  cityHeight,
+  neighborhoods,
+  buildings,
+  tiles,
+  routes,
+  routeLinks,
+  staleRoutes,
+}: Props) {
   const router = useRouter();
   const reduceMotion = useReducedMotion();
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -65,6 +81,12 @@ export function CityMap({ cityId, cityWidth, cityHeight, neighborhoods, building
   const [ghost, setGhost] = useState<{ x: number; y: number } | null>(null);
   const [buildHint, setBuildHint] = useState<string | null>(null);
   const [raising, setRaising] = useState<{ x: number; y: number } | null>(null);
+
+  // Roads
+  const [hoveredRoad, setHoveredRoad] = useState<string | null>(null);
+  const [selectedRoad, setSelectedRoad] = useState<string | null>(null);
+  const [pavingIds, setPavingIds] = useState<string[]>([]);
+  const solving = useRef(false);
 
   /**
    * Frame the inhabited part of the city, not the whole grid. A 40x40 map is
@@ -108,6 +130,27 @@ export function CityMap({ cityId, cityWidth, cityHeight, neighborhoods, building
       y: snap(rect.height / 2 - (bounds.y + bounds.height / 2)),
     }));
   }, [bounds]);
+
+  /**
+   * Drain any stale routes.
+   *
+   * The database only ever flags a route as needing a re-solve; the A* runs in
+   * app code. Doing it here means a link created anywhere -- a wiki link, a
+   * table relation, a promoted note -- shows up as a road the next time the
+   * map is opened.
+   */
+  useEffect(() => {
+    if (staleRoutes === 0 || solving.current) return;
+    solving.current = true;
+    void solveStaleRoutes({ cityId }).then((result) => {
+      solving.current = false;
+      if (!result.ok) return;
+      // Remembered across the refresh so the new roads pave themselves in
+      // once their tiles actually exist.
+      if (result.solvedIds.length > 0) setPavingIds(result.solvedIds);
+      if (result.solved > 0 || result.removed > 0) router.refresh();
+    });
+  }, [staleRoutes, cityId, router]);
 
   useEffect(() => {
     const el = viewportRef.current;
@@ -218,6 +261,29 @@ export function CityMap({ cityId, cityWidth, cityHeight, neighborhoods, building
         n.origin_y < ghost.y + draft.height,
     );
   }, [ghost, draft, neighborhoods, cityWidth, cityHeight]);
+
+  const handlePaved = useCallback(() => setPavingIds([]), []);
+
+  const labelForRoute = useCallback(
+    (route: MapRoute) => {
+      const count = `${route.linkCount} connection${route.linkCount === 1 ? "" : "s"}`;
+      if (route.scope === "highway") {
+        const a = hoodById.get(route.aNeighborhoodId ?? "")?.name ?? "Somewhere";
+        const b = hoodById.get(route.bNeighborhoodId ?? "")?.name ?? "Somewhere";
+        return `${a} ↔ ${b} — ${count}`;
+      }
+      const a = buildings.find((x) => x.id === route.aBuildingId)?.title ?? "—";
+      const b = buildings.find((x) => x.id === route.bBuildingId)?.title ?? "—";
+      return `${a} ↔ ${b} — ${count}`;
+    },
+    [hoodById, buildings],
+  );
+
+  /** Hovering a road lights up the buildings at both ends. */
+  const highlightedBuildings = useMemo(() => {
+    const route = routes.find((r) => r.id === hoveredRoad);
+    return route ? new Set([route.aBuildingId, route.bBuildingId]) : new Set<string>();
+  }, [routes, hoveredRoad]);
 
   const visibleBuildings = useMemo(
     () =>
@@ -548,6 +614,18 @@ export function CityMap({ cityId, cityWidth, cityHeight, neighborhoods, building
           );
         })}
 
+        {/* Roads: above terrain, below the buildings they arrive at */}
+        <RoadLayer
+          routes={routes}
+          zoom={camera.zoom}
+          hoveredId={hoveredRoad}
+          onHover={setHoveredRoad}
+          onSelect={setSelectedRoad}
+          labelFor={labelForRoute}
+          pavingIds={pavingIds}
+          onPaved={handlePaved}
+        />
+
         {/* Buildings */}
         {visibleBuildings.map((b) => {
           const hood = hoodById.get(b.neighborhood_id) ?? null;
@@ -581,7 +659,13 @@ export function CityMap({ cityId, cityWidth, cityHeight, neighborhoods, building
                 width: geometry.width,
                 height: geometry.height,
                 zIndex: depthFor(b.tile_x, b.tile_y, b.footprint_w, b.footprint_h) + 1,
-                transform: isEntering ? "translateY(2px) scaleY(0.92)" : undefined,
+                transform: isEntering
+                  ? "translateY(2px) scaleY(0.92)"
+                  : highlightedBuildings.has(b.id)
+                    ? "translateY(-2px)"
+                    : undefined,
+                filter: highlightedBuildings.has(b.id) ? "drop-shadow(0 0 0 var(--color-gold))" : undefined,
+                outline: highlightedBuildings.has(b.id) ? "2px solid var(--color-gold)" : undefined,
                 transition: reduceMotion ? "none" : "transform 120ms steps(3, end)",
               }}
             >
@@ -657,6 +741,19 @@ export function CityMap({ cityId, cityWidth, cityHeight, neighborhoods, building
           Build
         </button>
       )}
+
+      {selectedRoad ? (() => {
+        const route = routes.find((r) => r.id === selectedRoad);
+        if (!route) return null;
+        return (
+          <ConnectionsPanel
+            route={route}
+            label={labelForRoute(route)}
+            links={routeLinks[route.id] ?? []}
+            onClose={() => setSelectedRoad(null)}
+          />
+        );
+      })() : null}
 
       {/* Zoom readout / controls */}
       <div className="pointer-events-none absolute bottom-3 right-3 border-2 border-ink bg-paper px-2 py-1 font-pixel text-[10px] uppercase text-ink shadow-hard">

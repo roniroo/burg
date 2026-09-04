@@ -35,6 +35,7 @@ step "document";   npx tsx scripts/check-doc.ts "$doc"          2>&1 | grep -E '
 step "warehouse";  npx tsx scripts/check-warehouse.ts "$table"  2>&1 | grep -E '^(PASS|FAIL)|page error'
 step "board";      npx tsx scripts/check-board.ts "$board"      2>&1 | grep -E '^(PASS|FAIL)|page error'
 step "build mode"; npx tsx scripts/check-build.ts               2>&1 | grep -E '^(PASS|FAIL)|page error'
+step "roads";      npx tsx scripts/check-roads.ts               2>&1 | grep -E '^(PASS|FAIL)|page error'
 step "a11y";       npx tsx scripts/check-a11y.ts                2>&1 | grep -E '^(PASS|FAIL)'
 
 printf '\n'
