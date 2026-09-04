@@ -247,7 +247,6 @@ export async function seedIdeaburg(supabase: Client, userId: string): Promise<Se
 
   // --- Launch Brief (doc) -------------------------------------------------
   const launchBriefDoc = doc([
-    heading(1, "Launch Brief"),
     para(LAUNCH_BRIEF_PARAGRAPHS.intro),
     heading(2, "Scope"),
     para(LAUNCH_BRIEF_PARAGRAPHS.scope),
@@ -259,12 +258,9 @@ export async function seedIdeaburg(supabase: Client, userId: string): Promise<Se
     paraWithLink(`${LAUNCH_BRIEF_PARAGRAPHS.cadence} Per-item detail lives in `, roadmapId, "Roadmap"),
   ]);
 
-  const readingNotesDoc = doc([
-    heading(1, "Reading Notes"),
-    ...READING_NOTES_PARAGRAPHS.map(para),
-  ]);
-  const recipesDoc = doc([heading(1, "Recipes"), ...RECIPES_PARAGRAPHS.map(para)]);
-  const pinegroveDoc = doc([heading(1, "Terrain Notes"), ...PINEGROVE_PARAGRAPHS.map(para)]);
+  const readingNotesDoc = doc([...READING_NOTES_PARAGRAPHS.map(para)]);
+  const recipesDoc = doc([...RECIPES_PARAGRAPHS.map(para)]);
+  const pinegroveDoc = doc([...PINEGROVE_PARAGRAPHS.map(para)]);
 
   fail("documents")(
     (
