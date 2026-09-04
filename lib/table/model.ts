@@ -135,7 +135,7 @@ export type FilterOp =
 
 export type Filter = { fieldId: string; op: FilterOp; value?: CellValue };
 
-function isEmpty(value: CellValue): boolean {
+export function isEmpty(value: CellValue): boolean {
   if (value === null || value === undefined) return true;
   if (Array.isArray(value)) return value.length === 0;
   if (typeof value === "string") return value.trim() === "";
@@ -169,7 +169,11 @@ export function matchesFilter(field: Field, value: CellValue, filter: Filter): b
     return filter.op === "eq" ? same : !same;
   }
 
-  // Ordered comparisons only make sense on scalars.
+  // Ordered comparisons only make sense on scalars that are actually present.
+  // Without this, an empty cell would satisfy `>= 3`, because the comparator
+  // deliberately orders empties last rather than reporting them incomparable.
+  if (isEmpty(value) || isEmpty(target)) return false;
+
   const left = compareValues(field.field_type, value, target);
   if (left === null) return false;
   switch (filter.op) {
@@ -204,13 +208,18 @@ export function applyFilters(rows: Row[], fields: Field[], filters: Filter[]): R
 
 export type Sort = { fieldId: string; direction: "asc" | "desc" };
 
-/** -1, 0, 1, or null when the pair is not orderable. */
+/**
+ * -1, 0, 1, or null when the pair is not orderable.
+ *
+ * Empty values are NOT given a position here. Ordering them is a policy
+ * decision that belongs to the caller: `applySorts` pins them last in both
+ * directions, while `matchesFilter` refuses to compare them at all. Baking
+ * "empty sorts last" into the comparator made descending sorts put empties
+ * first, because the direction flip inverted it.
+ */
 export function compareValues(type: FieldType, a: CellValue, b: CellValue): number | null {
   if (a === null && b === null) return 0;
-  // Empty cells sort last regardless of direction, which is what people expect
-  // from a spreadsheet.
-  if (a === null) return 1;
-  if (b === null) return -1;
+  if (a === null || b === null) return null;
 
   if (type === "number" || type === "currency") {
     const na = typeof a === "number" ? a : Number(a);
@@ -236,6 +245,15 @@ export function applySorts(rows: Row[], fields: Field[], sorts: Sort[]): Row[] {
       if (!field) continue;
       const a = coerceCell(field.field_type, rowA.data[sort.fieldId]);
       const b = coerceCell(field.field_type, rowB.data[sort.fieldId]);
+
+      // Empty cells sink to the bottom either way, which is what a spreadsheet
+      // does. Decided before the direction flip so descending cannot invert it.
+      const aEmpty = isEmpty(a);
+      const bEmpty = isEmpty(b);
+      if (aEmpty && bEmpty) continue;
+      if (aEmpty) return 1;
+      if (bEmpty) return -1;
+
       const result = compareValues(field.field_type, a, b);
       if (result === null || result === 0) continue;
       return sort.direction === "asc" ? result : -result;

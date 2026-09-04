@@ -15,10 +15,12 @@ step "build";           npm run build 2>&1 | grep -E "Compiled|Failed|error" || 
 ids=$(npx tsx scripts/dev-ids.ts 2>/dev/null | grep -v '^◇')
 doc=$(echo "$ids" | grep 'Launch Brief' | cut -f2)
 kiosk=$(echo "$ids" | grep 'References'  | cut -f2)
+table=$(echo "$ids" | grep 'Roadmap'     | cut -f2)
 
 step "map";        npx tsx scripts/check-map.ts        2>&1 | grep -E '^(PASS|FAIL)|page error' || fail=1
 step "newsstand";  npx tsx scripts/check-newsstand.ts "$kiosk" 2>&1 | grep -E '^(PASS|FAIL)|page error' || fail=1
 step "document";   npx tsx scripts/check-doc.ts "$doc"  2>&1 | grep -E '^(PASS|FAIL)|page error' || fail=1
+step "warehouse";  npx tsx scripts/check-warehouse.ts "$table" 2>&1 | grep -E '^(PASS|FAIL)|page error' || fail=1
 step "a11y";       npx tsx scripts/check-a11y.ts       2>&1 | grep -E '^(PASS|FAIL)' || fail=1
 
 printf '\n'
