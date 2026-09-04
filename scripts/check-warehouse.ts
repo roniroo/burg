@@ -18,7 +18,13 @@ const cookie = { name: cookieLine.slice(0, eq), value: cookieLine.slice(eq + 1),
 
 const buildingId = process.argv[2]!;
 const results: string[] = [];
-const check = (n: string, ok: boolean, d = "") => results.push(`${ok ? "PASS" : "FAIL"}  ${n}${d ? ` — ${d}` : ""}`);
+const check = (n: string, ok: boolean, d = "") => {
+  const line = `${ok ? "PASS" : "FAIL"}  ${n}${d ? ` — ${d}` : ""}`;
+  // Printed as it happens: a later step that throws must not swallow the
+  // results of every step before it.
+  console.log(line);
+  results.push(line);
+};
 
 const browser = await chromium.launch();
 const context = await browser.newContext({ viewport: { width: 1400, height: 950 } });
@@ -153,6 +159,5 @@ const { data: allRows } = await admin
 const blank = (allRows ?? []).filter((r) => !r.search_text);
 for (const r of blank) await admin.from("table_rows").delete().eq("id", r.id);
 
-console.log(results.join("\n"));
 console.log(errors.length ? "\npage errors:\n  " + errors.join("\n  ") : "\nno page errors");
 await browser.close();

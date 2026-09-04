@@ -5,6 +5,7 @@ import { InteriorShell } from "@/components/interiors/interior-shell";
 import { Newsstand } from "@/components/interiors/newsstand";
 import { DocEditor, type LinkTarget } from "@/components/interiors/doc-editor";
 import { Warehouse, type View } from "@/components/interiors/warehouse";
+import { Noticeboard, type PromoteTarget } from "@/components/interiors/noticeboard";
 import type { Field, FieldOptions, Filter, Row, Sort } from "@/lib/table/model";
 import { Backlinks } from "@/components/interiors/backlinks";
 
@@ -112,6 +113,36 @@ export default async function BuildingPage({ params }: { params: Promise<{ id: s
           rows={rows}
           views={views}
           primaryFieldId={table?.primary_field_id ?? null}
+        />
+        <Backlinks buildingId={id} />
+      </InteriorShell>
+    );
+  }
+
+  if (building.artifact_type === "board") {
+    const [{ data: board }, { data: notes }, { data: columns }, { data: targets }] = await Promise.all([
+      supabase.from("boards").select("mode").eq("building_id", id).maybeSingle(),
+      supabase.from("board_notes").select("*").eq("building_id", id).order("position"),
+      supabase.from("board_columns").select("*").eq("building_id", id).order("position"),
+      supabase
+        .from("buildings")
+        .select("id, title, artifact_type")
+        .eq("city_id", building.city_id)
+        .in("artifact_type", ["table", "board"]),
+    ]);
+
+    const promoteTargets: PromoteTarget[] = (targets ?? [])
+      .filter((t) => t.id !== id)
+      .map((t) => ({ id: t.id, title: t.title, artifactType: t.artifact_type }));
+
+    return (
+      <InteriorShell title={building.title} artifactType="board" neighborhood={hood} wide>
+        <Noticeboard
+          buildingId={id}
+          mode={board?.mode ?? "freeform"}
+          notes={notes ?? []}
+          columns={columns ?? []}
+          promoteTargets={promoteTargets}
         />
         <Backlinks buildingId={id} />
       </InteriorShell>

@@ -366,21 +366,24 @@ export async function seedIdeaburg(supabase: Client, userId: string): Promise<Se
     ).error,
   );
 
+  // Laid out on a 224 x 224 grid. A note is 168 wide and roughly 180 tall
+  // once its colour swatches and buttons are counted, and the tilt grows the
+  // bounding box further -- 224 leaves clearance on both axes.
   const harborNotes: ReadonlyArray<[string, number, number, number, number]> = [
-    ["Ask Ada who owns the reviewer queue when she is out", 1, 40, 48, -3],
-    ["The status page vendor has a sandbox — use it", 2, 240, 72, 2],
-    ["Rollback dry run needs a staging window", 3, 96, 200, -1],
-    ["Someone should own the launch comms doc", 4, 340, 168, 4],
-    ["Latency > 2s is a support problem, not an eng one", 5, 176, 320, -2],
-    ["Do not let the partner API back into scope", 6, 420, 288, 3],
-    ["Write the customer note before the date is fixed", 1, 60, 368, 1],
+    ["Ask Ada who owns the reviewer queue when she is out", 1, 32, 24, -3],
+    ["The status page vendor has a sandbox — use it", 2, 256, 40, 2],
+    ["Rollback dry run needs a staging window", 3, 480, 24, -1],
+    ["Someone should own the launch comms doc", 4, 704, 44, 4],
+    ["Latency > 2s is a support problem, not an eng one", 5, 32, 248, -2],
+    ["Do not let the partner API back into scope", 6, 256, 248, 3],
+    ["Write the customer note before the date is fixed", 1, 480, 248, 1],
   ];
 
   const oldTownNotes: ReadonlyArray<[string, number, number, number, number]> = [
-    ["Retrieval is spatial more often than semantic", 2, 64, 56, -2],
-    ["Braises freeze better than anything else", 4, 280, 104, 3],
-    ["A knowledge base is a graph pretending to be a tree", 5, 120, 232, -4],
-    ["Try the shorter proof next time", 3, 320, 280, 2],
+    ["Retrieval is spatial more often than semantic", 2, 32, 24, -2],
+    ["Braises freeze better than anything else", 4, 256, 40, 3],
+    ["A knowledge base is a graph pretending to be a tree", 5, 480, 24, -4],
+    ["Try the shorter proof next time", 3, 32, 248, 2],
   ];
 
   fail("board_notes")(

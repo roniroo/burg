@@ -15,7 +15,13 @@ const errors: string[] = [];
 page.on("pageerror", (e) => errors.push(String(e)));
 
 const results: string[] = [];
-const check = (n: string, ok: boolean, d = "") => results.push(`${ok ? "PASS" : "FAIL"}  ${n}${d ? ` — ${d}` : ""}`);
+const check = (n: string, ok: boolean, d = "") => {
+  const line = `${ok ? "PASS" : "FAIL"}  ${n}${d ? ` — ${d}` : ""}`;
+  // Printed as it happens: a later step that throws must not swallow the
+  // results of every step before it.
+  console.log(line);
+  results.push(line);
+};
 
 await page.goto(`http://localhost:3000/b/${buildingId}`, { waitUntil: "networkidle" });
 const before = await page.locator("li").count();
@@ -55,6 +61,5 @@ await page.waitForTimeout(2500);
 const alert = await page.locator('[role="alert"]').count();
 check("invalid input is rejected with a message", alert > 0);
 
-console.log(results.join("\n"));
 console.log(errors.length ? "\npage errors:\n  " + errors.join("\n  ") : "\nno page errors");
 await browser.close();
