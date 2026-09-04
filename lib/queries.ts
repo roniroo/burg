@@ -91,20 +91,6 @@ export async function getConnections(cityId: string): Promise<Connection[]> {
   });
 }
 
-/** Building type -> the city noun it wears, for labels and accessible names. */
-export const BUILDING_NOUN: Record<ArtifactType, string> = {
-  doc: "Library",
-  table: "Warehouse",
-  board: "Noticeboard",
-  canvas: "Studio",
-  kiosk: "Newsstand",
-};
-
-/** Silhouette is not the only signal: every type also carries a glyph. */
-export const BUILDING_GLYPH: Record<ArtifactType, string> = {
-  doc: "▤",
-  table: "▦",
-  board: "▣",
-  canvas: "◈",
-  kiosk: "▥",
-};
+// Presentation constants live in lib/artifacts.ts so that client components
+// can import them without pulling this server-only module in with them.
+export { BUILDING_GLYPH, BUILDING_NOUN } from "@/lib/artifacts";

@@ -88,8 +88,10 @@
   }
 
   [data-biome="harbor"] {
-    --biome-ground: var(--color-water);
-    --biome-ground-alt: var(--color-sky);
+    /* Quayside, not open water -- the river already owns --color-water and
+       the district must not be mistaken for it. */
+    --biome-ground: var(--color-sand);
+    --biome-ground-alt: var(--color-dust);
     --biome-edge: var(--color-deep);
     --biome-roof: var(--color-teal);
     --biome-wall: var(--color-snow);
@@ -121,6 +123,21 @@
     --biome-roof: var(--color-plum);
     --biome-wall: var(--color-paper);
     --biome-accent: var(--color-water);
+  }
+
+
+  /* Sprite faces derive from the biome's six colours rather than adding more
+     authored hexes: light comes from the upper-left, so the right face of a
+     box is the base colour and the left face is mixed toward ink. */
+  :root,
+  [data-biome] {
+    --face-wall-lit: var(--biome-wall);
+    --face-wall-shade: color-mix(in srgb, var(--biome-wall) 68%, var(--color-ink));
+    --face-roof-lit: var(--biome-roof);
+    --face-roof-shade: color-mix(in srgb, var(--biome-roof) 68%, var(--color-ink));
+    --face-ground-lit: var(--biome-ground);
+    --face-ground-shade: color-mix(in srgb, var(--biome-ground) 80%, var(--color-ink));
+    --face-accent: var(--biome-accent);
   }
 
   /* Archived neighbourhoods read as boarded up rather than vanishing. */

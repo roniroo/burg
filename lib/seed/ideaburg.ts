@@ -162,7 +162,7 @@ export async function seedIdeaburg(supabase: Client, userId: string): Promise<Se
           biome: "downtown",
           status: "planning",
           crest_sprite: "crest_clock",
-          origin_x: 22,
+          origin_x: 20,
           origin_y: 4,
           width: 12,
           height: 10,
@@ -178,7 +178,7 @@ export async function seedIdeaburg(supabase: Client, userId: string): Promise<Se
           status: "archived",
           crest_sprite: "crest_pine",
           origin_x: 6,
-          origin_y: 24,
+          origin_y: 20,
           width: 10,
           height: 8,
           position: 2,
@@ -192,8 +192,8 @@ export async function seedIdeaburg(supabase: Client, userId: string): Promise<Se
 
   for (const [id, ox, oy, w, h, ground] of [
     [harborId, 2, 2, 12, 10, "cobble"],
-    [oldTownId, 22, 4, 12, 10, "cobble"],
-    [pinegroveId, 6, 24, 10, 8, "park"],
+    [oldTownId, 20, 4, 12, 10, "cobble"],
+    [pinegroveId, 6, 20, 10, 8, "park"],
   ] as const) {
     for (let x = ox; x < ox + w; x++) {
       for (let y = oy; y < oy + h; y++) {
@@ -221,11 +221,11 @@ export async function seedIdeaburg(supabase: Client, userId: string): Promise<Se
         { id: harborBoardId, city_id: cityId, neighborhood_id: harborId, title: "Harbor Plaza Board", artifact_type: "board", sprite_key: "noticeboard", sprite_variant: 1, tile_x: 5, tile_y: 7, footprint_w: 1, footprint_h: 1, floors: 1, position: 2 },
         { id: referencesId, city_id: cityId, neighborhood_id: harborId, title: "References", artifact_type: "kiosk", sprite_key: "newsstand", sprite_variant: 1, tile_x: 10, tile_y: 8, footprint_w: 1, footprint_h: 1, floors: 1, position: 3 },
 
-        { id: readingNotesId, city_id: cityId, neighborhood_id: oldTownId, title: "Reading Notes", artifact_type: "doc", sprite_key: "library", sprite_variant: 2, tile_x: 23, tile_y: 5, footprint_w: 2, footprint_h: 2, floors: 3, position: 0 },
-        { id: recipesId, city_id: cityId, neighborhood_id: oldTownId, title: "Recipes", artifact_type: "doc", sprite_key: "library", sprite_variant: 3, tile_x: 27, tile_y: 5, footprint_w: 1, footprint_h: 1, floors: 2, position: 1 },
-        { id: oldTownBoardId, city_id: cityId, neighborhood_id: oldTownId, title: "Old Town Board", artifact_type: "board", sprite_key: "noticeboard", sprite_variant: 2, tile_x: 25, tile_y: 9, footprint_w: 1, footprint_h: 1, floors: 1, position: 2 },
+        { id: readingNotesId, city_id: cityId, neighborhood_id: oldTownId, title: "Reading Notes", artifact_type: "doc", sprite_key: "library", sprite_variant: 2, tile_x: 21, tile_y: 5, footprint_w: 2, footprint_h: 2, floors: 3, position: 0 },
+        { id: recipesId, city_id: cityId, neighborhood_id: oldTownId, title: "Recipes", artifact_type: "doc", sprite_key: "library", sprite_variant: 3, tile_x: 25, tile_y: 5, footprint_w: 1, footprint_h: 1, floors: 2, position: 1 },
+        { id: oldTownBoardId, city_id: cityId, neighborhood_id: oldTownId, title: "Old Town Board", artifact_type: "board", sprite_key: "noticeboard", sprite_variant: 2, tile_x: 23, tile_y: 9, footprint_w: 1, footprint_h: 1, floors: 1, position: 2 },
 
-        { id: fieldNotesId, city_id: cityId, neighborhood_id: pinegroveId, title: "Terrain Notes", artifact_type: "doc", sprite_key: "library", sprite_variant: 1, tile_x: 8, tile_y: 26, footprint_w: 1, footprint_h: 1, floors: 1, position: 0 },
+        { id: fieldNotesId, city_id: cityId, neighborhood_id: pinegroveId, title: "Terrain Notes", artifact_type: "doc", sprite_key: "library", sprite_variant: 1, tile_x: 8, tile_y: 22, footprint_w: 1, footprint_h: 1, floors: 1, position: 0 },
       ])
     ).error,
   );
@@ -239,8 +239,8 @@ export async function seedIdeaburg(supabase: Client, userId: string): Promise<Se
       await supabase.from("gates").insert([
         { city_id: cityId, neighborhood_id: harborId, edge: "east", edge_offset: 5, tile_x: 13, tile_y: 7 },
         { city_id: cityId, neighborhood_id: harborId, edge: "south", edge_offset: 5, tile_x: 7, tile_y: 11 },
-        { city_id: cityId, neighborhood_id: oldTownId, edge: "west", edge_offset: 5, tile_x: 22, tile_y: 9 },
-        { city_id: cityId, neighborhood_id: pinegroveId, edge: "north", edge_offset: 5, tile_x: 11, tile_y: 24 },
+        { city_id: cityId, neighborhood_id: oldTownId, edge: "west", edge_offset: 5, tile_x: 20, tile_y: 9 },
+        { city_id: cityId, neighborhood_id: pinegroveId, edge: "north", edge_offset: 5, tile_x: 11, tile_y: 20 },
       ])
     ).error,
   );

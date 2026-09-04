@@ -47,7 +47,7 @@ export default async function DirectoryPage() {
                 </span>
               </h3>
               {n.buildings.length === 0 ? (
-                <p className="pl-4 font-body text-sm text-ash">No buildings yet.</p>
+                <p className="pl-4 font-body text-sm text-stone">No buildings yet.</p>
               ) : (
                 <ul className="mt-1 flex flex-col gap-1 border-l-2 border-mist pl-4">
                   {n.buildings.map((b) => (
@@ -58,7 +58,7 @@ export default async function DirectoryPage() {
                         </span>
                         {BUILDING_NOUN[b.artifact_type]}: {b.title}
                       </Link>
-                      <span className="ml-2 font-pixel text-[10px] uppercase text-ash">
+                      <span className="ml-2 font-pixel text-[10px] uppercase text-stone">
                         tile {b.tile_x},{b.tile_y}
                       </span>
                     </li>
@@ -106,7 +106,7 @@ export default async function DirectoryPage() {
                     <Link href={`/b/${c.source.id}`} className="underline decoration-mist underline-offset-4">
                       {c.source.title}
                     </Link>
-                    <span className="block font-pixel text-[10px] uppercase text-ash">
+                    <span className="block font-pixel text-[10px] uppercase text-stone">
                       {c.source.neighborhood}
                     </span>
                   </td>
@@ -114,7 +114,7 @@ export default async function DirectoryPage() {
                     <Link href={`/b/${c.target.id}`} className="underline decoration-mist underline-offset-4">
                       {c.target.title}
                     </Link>
-                    <span className="block font-pixel text-[10px] uppercase text-ash">
+                    <span className="block font-pixel text-[10px] uppercase text-stone">
                       {c.target.neighborhood}
                     </span>
                   </td>

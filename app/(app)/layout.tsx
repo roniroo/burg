@@ -5,7 +5,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const city = await getCurrentCity();
 
   return (
-    <div className="flex min-h-dvh flex-col">
+    <div className="flex h-dvh flex-col overflow-hidden">
       <header className="flex items-center justify-between border-b-2 border-ink bg-snow px-4 py-3">
         <div className="flex items-baseline gap-3">
           <Link href="/city" className="font-display text-xl text-ink">
@@ -28,7 +28,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </Link>
         </nav>
       </header>
-      <main className="flex-1">{children}</main>
+      <main className="min-h-0 flex-1 overflow-auto">{children}</main>
     </div>
   );
 }

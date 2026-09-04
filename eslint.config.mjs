@@ -1,12 +1,12 @@
-import { dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-import { FlatCompat } from "@eslint/eslintrc";
+import coreWebVitals from "eslint-config-next/core-web-vitals";
+import typescript from "eslint-config-next/typescript";
 
-const compat = new FlatCompat({ baseDirectory: dirname(fileURLToPath(import.meta.url)) });
-
-export default [
-  { ignores: [".next/**", "node_modules/**", "next-env.d.ts"] },
-  ...compat.extends("next/core-web-vitals", "next/typescript"),
+// eslint-config-next ships native flat config as of Next 16; FlatCompat is no
+// longer needed (and produces a circular-structure error when used here).
+const config = [
+  { ignores: [".next/**", "node_modules/**", "next-env.d.ts", "scripts/shots/**"] },
+  ...coreWebVitals,
+  ...typescript,
   {
     rules: {
       "@typescript-eslint/no-explicit-any": "error",
@@ -14,3 +14,5 @@ export default [
     },
   },
 ];
+
+export default config;
