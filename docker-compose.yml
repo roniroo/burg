@@ -1,0 +1,35 @@
+# Burg — local development.
+#
+# Run `supabase start` on the host first: the Supabase CLI brings up Postgres,
+# Auth, Storage and Studio in their own containers and applies every migration
+# in supabase/migrations. This file runs only the Next.js app against it.
+#
+# `npm run docker:env` writes .env.docker with the local stack's keys.
+# See DEV.md for the full walkthrough.
+
+services:
+  web:
+    build:
+      context: .
+      target: dev
+    ports:
+      - "3000:3000"
+    env_file:
+      - path: .env.docker
+        required: false
+    environment:
+      # host.docker.internal reaches the Supabase stack running on the host.
+      # Overridable from .env.docker for anyone pointing at a hosted project.
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-http://host.docker.internal:54321}
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
+      # Next's dev server does not see host filesystem events through a bind
+      # mount on macOS and Windows, so it has to poll.
+      WATCHPACK_POLLING: "true"
+    volumes:
+      # Source is mounted for hot reload; node_modules and .next stay in the
+      # image so a host install (or lack of one) cannot shadow them.
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

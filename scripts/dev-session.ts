@@ -1,12 +1,18 @@
 /**
- * Dev helper: mint a browser-shaped session cookie for the test user so the
- * authenticated pages can be smoke-tested with curl.
+ * Dev helper: mint a browser-shaped session cookie so the check scripts and
+ * screenshot tooling can drive the app as a signed-in user.
+ *
+ *   npx tsx scripts/dev-session.ts you@example.com
+ *
+ * Writes /tmp/burg-cookie.txt (override with BURG_COOKIE_FILE). Sets a known
+ * password on the account as a side effect, so use a throwaway user.
  */
+import { writeFileSync } from "node:fs";
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../lib/database.types";
 
-config({ path: ".env.local" });
+config({ path: ".env.local", quiet: true });
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const email = process.argv[2] ?? "seedtest@burg.local";
@@ -38,4 +44,8 @@ const base64url = (s: string) =>
   Buffer.from(s, "utf-8").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
 const value = "base64-" + base64url(JSON.stringify(data.session));
-console.log(`sb-${ref}-auth-token=${value}`);
+const cookie = `sb-${ref}-auth-token=${value}`;
+
+const out = process.env.BURG_COOKIE_FILE ?? "/tmp/burg-cookie.txt";
+writeFileSync(out, cookie);
+console.log(`Wrote session cookie for ${email} to ${out}`);

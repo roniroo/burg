@@ -3,7 +3,7 @@ import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../lib/database.types";
 
-config({ path: ".env.local" });
+config({ path: ".env.local", quiet: true });
 
 const admin = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,

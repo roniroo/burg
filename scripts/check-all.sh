@@ -22,4 +22,10 @@ step "document";   npx tsx scripts/check-doc.ts "$doc"  2>&1 | grep -E '^(PASS|F
 step "a11y";       npx tsx scripts/check-a11y.ts       2>&1 | grep -E '^(PASS|FAIL)' || fail=1
 
 printf '\n'
-if grep -q . <<<"$(printf '')" && [ "$fail" -eq 0 ]; then echo "ALL CHECKS RAN"; else echo "SOME STEPS REPORTED FAILURES"; fi
+if [ "$fail" -eq 0 ]; then
+  echo "All steps ran. Read the PASS/FAIL lines above: a browser check that"
+  echo "fails an assertion still exits 0, so the lines are the source of truth."
+else
+  echo "At least one step exited non-zero."
+  exit 1
+fi

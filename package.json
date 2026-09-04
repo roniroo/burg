@@ -12,7 +12,14 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "seed": "tsx scripts/seed.ts",
-    "types:gen": "supabase gen types typescript --project-id ybquniffzetaylkrkadz > lib/database.types.ts"
+    "types:gen": "supabase gen types typescript --project-id ybquniffzetaylkrkadz > lib/database.types.ts",
+    "docker:env": "bash scripts/docker-env.sh",
+    "docker:up": "docker compose up --build",
+    "docker:down": "docker compose down",
+    "db:start": "supabase start",
+    "db:stop": "supabase stop",
+    "db:reset": "supabase db reset",
+    "check": "bash scripts/check-all.sh"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

@@ -1,16 +1,20 @@
 /**
- * CLI seeder: `npm run seed -- <email>`
+ * CLI seeder: `npm run seed -- <email> [--create]`
  *
- * Seeds the demo city for an existing user. Requires SUPABASE_SERVICE_ROLE_KEY
- * because it writes on someone else's behalf; the app's own first-sign-in path
- * does not. Idempotent -- re-running is a no-op once the city exists.
+ * Seeds the demo city for a user. Requires SUPABASE_SERVICE_ROLE_KEY because it
+ * writes on someone else's behalf; the app's own first-sign-in path does not.
+ * Idempotent -- re-running is a no-op once the city exists.
+ *
+ * `--create` makes the user first if they do not exist, with a confirmed email
+ * and a random password. Convenient against a local stack; on a real project
+ * prefer signing in once and letting the app seed itself.
  */
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../lib/database.types";
 import { seedIdeaburg } from "../lib/seed/ideaburg";
 
-config({ path: ".env.local" });
+config({ path: ".env.local", quiet: true });
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -25,8 +29,9 @@ if (!url || !serviceKey) {
 }
 
 const email = process.argv[2];
-if (!email) {
-  console.error("Usage: npm run seed -- <email>");
+const shouldCreate = process.argv.includes("--create");
+if (!email || email.startsWith("--")) {
+  console.error("Usage: npm run seed -- <email> [--create]");
   process.exit(1);
 }
 
@@ -40,9 +45,28 @@ if (error) {
   process.exit(1);
 }
 
-const user = data.users.find((u) => u.email?.toLowerCase() === email.toLowerCase());
+let user = data.users.find((u) => u.email?.toLowerCase() === email.toLowerCase());
+
+if (!user && shouldCreate) {
+  const created = await admin.auth.admin.createUser({
+    email,
+    password: crypto.randomUUID(),
+    email_confirm: true,
+    user_metadata: { full_name: email.split("@")[0] },
+  });
+  if (created.error) {
+    console.error("Could not create user:", created.error.message);
+    process.exit(1);
+  }
+  user = created.data.user;
+  console.log(`Created ${email}.`);
+}
+
 if (!user) {
-  console.error(`No user found with email ${email}. Sign in once first.`);
+  console.error(
+    `No user found with email ${email}.\n` +
+      "Sign in once at http://localhost:3000, or re-run with --create.",
+  );
   process.exit(1);
 }
 
