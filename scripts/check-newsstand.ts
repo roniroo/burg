@@ -24,7 +24,8 @@ const check = (n: string, ok: boolean, d = "") => {
 };
 
 await page.goto(`http://localhost:3000/b/${buildingId}`, { waitUntil: "networkidle" });
-const before = await page.locator("li").count();
+const rows = page.locator("[data-kiosk-link]");
+const before = await rows.count();
 check("seeded links render", before === 5, `${before} rows`);
 
 // Add a real URL and let the server fetch its OpenGraph title.
@@ -38,10 +39,10 @@ check("optimistic row appears immediately", true);
 await page.waitForFunction(() => !document.body.innerText.includes("Fetching title…"), { timeout: 15000 }).catch(() => {});
 await page.waitForTimeout(1500);
 
-const after = await page.locator("li").count();
+const after = await rows.count();
 check("link was added", after === before + 1, `${before} -> ${after}`);
 
-const titles = await page.locator("li a").allInnerTexts();
+const titles = await rows.locator("a").allInnerTexts();
 const added = titles.find((t) => /example/i.test(t));
 check("OpenGraph title was fetched", !!added && added !== "https://example.com", added ?? "none");
 
@@ -51,7 +52,7 @@ await page.screenshot({ path: "scripts/shots/newsstand-added.png" });
 const removeButtons = page.locator('button[aria-label^="Remove"]');
 await removeButtons.last().click();
 await page.waitForTimeout(2000);
-const final = await page.locator("li").count();
+const final = await rows.count();
 check("link was removed", final === before, `${after} -> ${final}`);
 
 // A bad URL must be refused, not saved.

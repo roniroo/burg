@@ -116,7 +116,7 @@ export function Newsstand({ buildingId, links }: { buildingId: string; links: Ki
       ) : (
         <ul className="flex flex-col gap-3">
           {shown.map((link) => (
-            <li key={link.id} className="flex gap-3 border-2 border-ink bg-snow p-3 shadow-hard">
+            <li key={link.id} data-kiosk-link className="flex gap-3 border-2 border-ink bg-snow p-3 shadow-hard">
               {link.og_image_url ? (
                 /* Deliberately not next/image: these come from arbitrary
                    remote hosts pasted by the user, and routing them through
