@@ -1,0 +1,226 @@
+@import "tailwindcss";
+
+/* ==========================================================================
+   Burg design tokens
+   --------------------------------------------------------------------------
+   One restrained 24-colour set shared by every biome; each biome selects a
+   six-colour subset. No component may introduce a hex value -- if a colour is
+   needed it is added here first.
+
+   Hard rules encoded below: zero border-radius, zero blur, zero gradients
+   (the sky is the one exception), 1-2px solid borders, 2px hard offset
+   shadows, 8px spacing base.
+   ========================================================================== */
+
+@theme {
+  /* -- neutrals ------------------------------------------------------ */
+  --color-ink: #17171f;
+  --color-slate: #2e2f3d;
+  --color-stone: #565a70;
+  --color-ash: #8b90a8;
+  --color-mist: #c9cddc;
+  --color-paper: #f2efe4;
+
+  /* -- greens (grass, park, forest) ---------------------------------- */
+  --color-moss: #2f5d3a;
+  --color-grass: #4b8b3b;
+  --color-lime: #86c04a;
+
+  /* -- blues (water, sky, harbour) ----------------------------------- */
+  --color-deep: #1c3f63;
+  --color-water: #2f7fb5;
+  --color-sky: #8ecae6;
+
+  /* -- warms (brick, roof, timber, sand) ----------------------------- */
+  --color-brick: #9c3b2e;
+  --color-clay: #c65f3a;
+  --color-amber: #e8973f;
+  --color-sand: #e6c88a;
+
+  /* -- accents ------------------------------------------------------- */
+  --color-plum: #5b3a6e;
+  --color-orchid: #9a5ba8;
+  --color-rose: #d97c95;
+  --color-gold: #f2c14e;
+  --color-teal: #2d8a7a;
+
+  /* -- surfaces ------------------------------------------------------ */
+  --color-snow: #e8f0f4;
+  --color-dust: #b9a88c;
+  --color-void: #0d0d14;
+
+  /* -- type ---------------------------------------------------------- */
+  /* Silkscreen: chrome, labels, buttons. Pixelify: headings.
+     Inter: every paragraph and all document body copy -- never the pixel
+     face, a wiki you cannot read is a toy. */
+  --font-pixel: var(--font-silkscreen), "Courier New", monospace;
+  --font-display: var(--font-pixelify), var(--font-silkscreen), sans-serif;
+  --font-body: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  /* -- geometry ------------------------------------------------------ */
+  --spacing: 8px;
+  --radius-none: 0px;
+
+  /* -- iso tile geometry (mirrored by lib/iso.ts; keep in sync) ------- */
+  --tile-w: 64px;
+  --tile-h: 32px;
+}
+
+/* Every biome picks six of the twenty-four. Applied as a data attribute on a
+   region wrapper so tiles, buildings and props all inherit consistently. */
+@layer base {
+  :root {
+    --biome-ground: var(--color-grass);
+    --biome-ground-alt: var(--color-lime);
+    --biome-edge: var(--color-moss);
+    --biome-roof: var(--color-brick);
+    --biome-wall: var(--color-sand);
+    --biome-accent: var(--color-amber);
+  }
+
+  [data-biome="downtown"] {
+    --biome-ground: var(--color-stone);
+    --biome-ground-alt: var(--color-ash);
+    --biome-edge: var(--color-slate);
+    --biome-roof: var(--color-brick);
+    --biome-wall: var(--color-mist);
+    --biome-accent: var(--color-gold);
+  }
+
+  [data-biome="harbor"] {
+    --biome-ground: var(--color-water);
+    --biome-ground-alt: var(--color-sky);
+    --biome-edge: var(--color-deep);
+    --biome-roof: var(--color-teal);
+    --biome-wall: var(--color-snow);
+    --biome-accent: var(--color-clay);
+  }
+
+  [data-biome="forest"] {
+    --biome-ground: var(--color-grass);
+    --biome-ground-alt: var(--color-lime);
+    --biome-edge: var(--color-moss);
+    --biome-roof: var(--color-moss);
+    --biome-wall: var(--color-dust);
+    --biome-accent: var(--color-amber);
+  }
+
+  [data-biome="desert"] {
+    --biome-ground: var(--color-sand);
+    --biome-ground-alt: var(--color-dust);
+    --biome-edge: var(--color-clay);
+    --biome-roof: var(--color-clay);
+    --biome-wall: var(--color-paper);
+    --biome-accent: var(--color-teal);
+  }
+
+  [data-biome="snow"] {
+    --biome-ground: var(--color-snow);
+    --biome-ground-alt: var(--color-mist);
+    --biome-edge: var(--color-ash);
+    --biome-roof: var(--color-plum);
+    --biome-wall: var(--color-paper);
+    --biome-accent: var(--color-water);
+  }
+
+  /* Archived neighbourhoods read as boarded up rather than vanishing. */
+  [data-status="archived"] {
+    --biome-ground: var(--color-ash);
+    --biome-ground-alt: var(--color-mist);
+    --biome-edge: var(--color-stone);
+    --biome-roof: var(--color-stone);
+    --biome-wall: var(--color-dust);
+    --biome-accent: var(--color-stone);
+    filter: saturate(0.25);
+  }
+
+  html {
+    color-scheme: light;
+  }
+
+  body {
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-body);
+    /* Sub-pixel text smoothing fights the hard-edged look. */
+    -webkit-font-smoothing: none;
+    font-smooth: never;
+  }
+
+  /* Pixel faces are for chrome only. */
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    font-weight: 400;
+    letter-spacing: 0.01em;
+  }
+
+  /* Nothing in Burg is round or blurred. */
+  * {
+    border-radius: 0 !important;
+  }
+
+  /* Visible against every biome: two hard rings, light over dark. */
+  :focus-visible {
+    outline: 2px solid var(--color-ink);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 4px var(--color-gold);
+  }
+
+  @media (prefers-contrast: more) {
+    :focus-visible {
+      outline-width: 3px;
+      box-shadow: 0 0 0 5px var(--color-gold);
+    }
+  }
+}
+
+@layer utilities {
+  /* Sprites are integer-scaled artwork; never let the browser smooth them. */
+  .pixelated {
+    image-rendering: pixelated;
+    -webkit-user-drag: none;
+  }
+
+  /* The hard 2px offset shadow that stands in for elevation everywhere. */
+  .shadow-hard {
+    box-shadow: 2px 2px 0 0 var(--color-ink);
+  }
+  .shadow-hard-lg {
+    box-shadow: 4px 4px 0 0 var(--color-ink);
+  }
+  .shadow-hard-none {
+    box-shadow: none;
+  }
+
+  .font-pixel {
+    font-family: var(--font-pixel);
+  }
+  .font-display {
+    font-family: var(--font-display);
+  }
+  .font-body {
+    font-family: var(--font-body);
+  }
+
+  /* Document interiors opt out of the pixel treatment: readable type,
+     ordinary antialiasing, calm. */
+  .prose-readable {
+    -webkit-font-smoothing: antialiased;
+    font-family: var(--font-body);
+    line-height: 1.65;
+  }
+}
+
+/* Ambient motion is a reward, not a requirement. Everything that loops or
+   travels stops here; transitions collapse to opacity-only crossfades and
+   camera moves become instant cuts. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
