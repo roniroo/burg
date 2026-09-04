@@ -6,6 +6,8 @@ import { Newsstand } from "@/components/interiors/newsstand";
 import { DocEditor, type LinkTarget } from "@/components/interiors/doc-editor";
 import { Warehouse, type View } from "@/components/interiors/warehouse";
 import { Noticeboard, type PromoteTarget } from "@/components/interiors/noticeboard";
+import { Studio } from "@/components/interiors/studio";
+import { parseScene } from "@/lib/canvas/model";
 import type { Field, FieldOptions, Filter, Row, Sort } from "@/lib/table/model";
 import { Backlinks } from "@/components/interiors/backlinks";
 
@@ -144,6 +146,21 @@ export default async function BuildingPage({ params }: { params: Promise<{ id: s
           columns={columns ?? []}
           promoteTargets={promoteTargets}
         />
+        <Backlinks buildingId={id} />
+      </InteriorShell>
+    );
+  }
+
+  if (building.artifact_type === "canvas") {
+    const { data: canvas } = await supabase
+      .from("canvases")
+      .select("scene")
+      .eq("building_id", id)
+      .maybeSingle();
+
+    return (
+      <InteriorShell title={building.title} artifactType="canvas" neighborhood={hood} wide>
+        <Studio buildingId={id} initialScene={parseScene(canvas?.scene)} />
         <Backlinks buildingId={id} />
       </InteriorShell>
     );
