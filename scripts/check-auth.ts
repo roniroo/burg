@@ -74,6 +74,36 @@ const fresh = async (): Promise<BrowserContext> => {
   await ctx.close();
 }
 
+// --- creating an account -------------------------------------------------
+{
+  const ctx = await fresh();
+  const page = await ctx.newPage();
+  page.on("pageerror", (e) => errors.push(String(e)));
+
+  const newEmail = `signup+${Date.now()}@burg.local`;
+  await page.goto("http://localhost:3000/sign-in", { waitUntil: "networkidle" });
+  await page.getByRole("radio", { name: /create account/i }).click();
+  await page.fill("#email", newEmail);
+  await page.fill("#password", "a-brand-new-password");
+  await page.getByRole("button", { name: /^create account$/i }).last().click();
+  await page.waitForURL(/\/city/, { timeout: 25000 }).catch(() => {});
+
+  check("creating an account signs straight in, with no email step", /\/city/.test(page.url()), page.url());
+
+  const { data: made } = await admin.auth.admin.listUsers({ perPage: 1000 });
+  const created = made.users.find((u) => u.email === newEmail);
+  check("the new account is confirmed on the spot", !!created?.email_confirmed_at,
+    created?.email_confirmed_at ?? "not confirmed");
+
+  if (created) {
+    const { count } = await admin
+      .from("cities").select("id", { count: "exact", head: true }).eq("owner_id", created.id);
+    check("a new account gets its own city", (count ?? 0) === 1, `${count} cities`);
+    await admin.auth.admin.deleteUser(created.id);
+  }
+  await ctx.close();
+}
+
 // --- the link shapes the old callback could not handle -------------------
 {
   // An admin-generated magic link uses the implicit flow: tokens in the

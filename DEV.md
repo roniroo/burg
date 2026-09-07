@@ -79,10 +79,9 @@ worth knowing:
   never leaves your machine: it lands in Inbucket at http://127.0.0.1:54324.
 - **Continue with Google.** Needs the provider configured in Supabase.
 
-If **Create account** says to check your email, the project has *Confirm email*
-switched on. Either confirm it, or turn it off at
-`Authentication → Sign In / Providers → Email → Confirm email` for instant
-signup. Locally the confirmation mail is in Inbucket too.
+Email confirmation is switched **off** on the hosted project, so creating an
+account signs you straight in with no email round trip. If you ever turn it
+back on, the form will say to check your email instead.
 
 To seed a city for an address without using the UI:
 
@@ -239,6 +238,29 @@ The automated checks do not cover feel. Worth looking at yourself:
 All of them read `.env.local` and need `SUPABASE_SERVICE_ROLE_KEY`.
 
 ---
+
+## Supabase project settings
+
+`supabase/config.toml` is **not** the source of truth for the hosted project —
+the project was created before the file existed. `supabase config push`
+overwrites the remote auth config with everything in that file, and it applies
+immediately whether or not you confirm the diff it prints. It has already done
+that once here: it moved `site_url` to 127.0.0.1, wiped the redirect allow
+list, disabled MFA and mangled the SMS templates, all of which had to be put
+back by hand.
+
+Change one setting at a time through the dashboard, or with the Management API:
+
+```bash
+TOKEN=$(security find-generic-password -s "Supabase CLI" -w)   # macOS keychain
+curl -s -X PATCH -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"mailer_autoconfirm": true}' \
+  https://api.supabase.com/v1/projects/ybquniffzetaylkrkadz/config/auth
+```
+
+config.toml has since been aligned with the hosted project so a stray push is
+less destructive, but it is still not a command to reach for casually.
 
 ## Database changes
 

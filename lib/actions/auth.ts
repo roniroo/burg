@@ -96,14 +96,13 @@ export async function signUpWithPassword(input: unknown): Promise<AuthResult> {
 
   if (error) return { ok: false, error: error.message };
 
-  // With email confirmation on, signUp returns a user but no session: nothing
-  // to redirect into yet. With it off, we are already signed in.
+  // Email confirmation is off on this project, so signUp normally returns a
+  // session and we are already in. This branch only runs if someone turns
+  // confirmation back on, and it must not leave the user stranded.
   if (!data.session) {
     return {
       ok: true,
-      message:
-        "Account created. Check your email to confirm it, then sign in. " +
-        "(Turn off Confirm email in Supabase to skip this step.)",
+      message: "Account created. Check your email to confirm it, then sign in.",
     };
   }
 
