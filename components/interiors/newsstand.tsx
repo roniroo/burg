@@ -95,6 +95,7 @@ export function Newsstand({ buildingId, links }: { buildingId: string; links: Ki
         </div>
         <button
           type="submit"
+          data-add-link
           disabled={pending || url.trim().length === 0}
           className="border-2 border-ink bg-amber px-3 py-2 font-pixel text-xs uppercase shadow-hard transition-transform duration-150 hover:translate-x-px hover:translate-y-px hover:shadow-hard-none disabled:opacity-50"
         >

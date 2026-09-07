@@ -30,7 +30,7 @@ check("seeded links render", before === 5, `${before} rows`);
 
 // Add a real URL and let the server fetch its OpenGraph title.
 await page.fill("#kiosk-url", "https://example.com");
-await page.click('button[type="submit"]');
+await page.click("[data-add-link]");
 
 // The optimistic row should appear before the server responds.
 await page.waitForSelector("text=Fetching title…", { timeout: 2000 }).catch(() => {});
@@ -57,7 +57,7 @@ check("link was removed", final === before, `${after} -> ${final}`);
 
 // A bad URL must be refused, not saved.
 await page.fill("#kiosk-url", "not a url at all");
-await page.click('button[type="submit"]');
+await page.click("[data-add-link]");
 await page.waitForTimeout(2500);
 const alert = await page.locator('[role="alert"]').count();
 check("invalid input is rejected with a message", alert > 0);

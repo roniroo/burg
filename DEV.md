@@ -64,20 +64,31 @@ npm run docker:up     # docker compose up --build
 
 Then open **http://localhost:3000**. Source is bind-mounted, so edits hot-reload.
 
-### 4. Get a city to look at
+### 4. Sign in
 
-Create a user and seed the demo city in one step:
+Go to http://localhost:3000/sign-in, pick **Create account**, and use any email
+and a password of 8+ characters. Your city is seeded on first sign-in.
+
+Password is the primary way in. There are two other options, both with caveats
+worth knowing:
+
+- **Email me a link.** Magic links work, but a link only signs you in *in the
+  browser that asked for it* — the PKCE proof is held there. Opening it on your
+  phone gives "code verifier not found". Against the hosted project, Supabase's
+  built-in mail server also allows only a few messages an hour. Locally, mail
+  never leaves your machine: it lands in Inbucket at http://127.0.0.1:54324.
+- **Continue with Google.** Needs the provider configured in Supabase.
+
+If **Create account** says to check your email, the project has *Confirm email*
+switched on. Either confirm it, or turn it off at
+`Authentication → Sign In / Providers → Email → Confirm email` for instant
+signup. Locally the confirmation mail is in Inbucket too.
+
+To seed a city for an address without using the UI:
 
 ```bash
 npm run seed -- you@example.com --create
 ```
-
-Then sign in at http://localhost:3000/sign-in with that address. The magic-link
-email will **not** leave your machine — it lands in Inbucket at
-http://127.0.0.1:54324. Open it there and click the link.
-
-Alternatively, skip the seeder entirely: sign in with any address, and the app
-seeds a fresh city for you on first sign-in.
 
 ### 5. Reset when you want a clean slate
 
@@ -173,6 +184,7 @@ npx tsx scripts/check-board.ts <board-id>       # notes, modes, promotion
 npx tsx scripts/check-build.ts                  # build mode, districts, regions
 npx tsx scripts/check-roads.ts                  # solving, gates, LOD, paving
 npx tsx scripts/check-life.ts                   # day/night, ticker, ⌘K
+npx tsx scripts/check-auth.ts                   # password, sign out, link shapes
 npx tsx scripts/check-studio.ts                 # whiteboard tools and saving
 npx tsx scripts/check-a11y.ts                   # axe, normal + reduced motion
 ```
