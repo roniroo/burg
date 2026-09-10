@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../lib/database.types";
+import { until } from "./until";
 
 config({ path: ".env.local", quiet: true });
 const admin = createClient<Database>(
@@ -124,11 +125,18 @@ const beforeDom = await rowEls.count();
 const { count: beforeDb } = await admin
   .from("table_rows").select("id", { count: "exact", head: true }).eq("building_id", buildingId);
 await page.getByRole("button", { name: /add row/i }).click();
-await page.waitForTimeout(2500);
-const { count: afterDb } = await admin
-  .from("table_rows").select("id", { count: "exact", head: true }).eq("building_id", buildingId);
-check("add row inserts a row", (afterDb ?? 0) === (beforeDb ?? 0) + 1, `db ${beforeDb} -> ${afterDb}`);
-check("the new row appears without a reload", (await rowEls.count()) === beforeDom + 1, `dom ${beforeDom} -> ${await rowEls.count()}`);
+
+// Wait for the insert rather than sleeping through it: the action is a server
+// round trip, and how long that takes depends on what else is running.
+const afterDb = await until(
+  async () =>
+    (await admin.from("table_rows").select("id", { count: "exact", head: true }).eq("building_id", buildingId)).count ?? 0,
+  (n) => n === (beforeDb ?? 0) + 1,
+);
+check("add row inserts a row", afterDb === (beforeDb ?? 0) + 1, `db ${beforeDb} -> ${afterDb}`);
+
+const afterDom = await until(() => rowEls.count(), (n) => n === beforeDom + 1);
+check("the new row appears without a reload", afterDom === beforeDom + 1, `dom ${beforeDom} -> ${afterDom}`);
 
 // --- gallery -------------------------------------------------------------
 // The seed carries only Table and Board (as the brief specifies), so the

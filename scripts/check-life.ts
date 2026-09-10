@@ -111,8 +111,11 @@ async function openCity(reduced: boolean, clockHour?: number) {
   check("cmd-K opens the palette", (await dialog.count()) === 1);
 
   await page.keyboard.type("roadmap");
-  await page.waitForTimeout(900);
+
+  // Hits are debounced and then fetched from Postgres, so wait for the list
+  // rather than guessing how long that takes.
   const items = page.locator("[cmdk-item]");
+  await items.first().waitFor({ state: "visible", timeout: 15000 }).catch(() => {});
   check("searching finds matching artifacts", (await items.count()) > 0, `${await items.count()} hits`);
   await page.screenshot({ path: "scripts/shots/life-palette.png" });
 
@@ -120,8 +123,16 @@ async function openCity(reduced: boolean, clockHour?: number) {
   check("results say what kind of thing each hit is", labels.some((l) => /building|document|table row|note|district/i.test(l)),
     labels[0]?.replace(/\n/g, " ") ?? "");
 
+  // The results arrive inside a transition, so the list can commit a frame
+  // before cmdk has marked an item active. Enter with nothing selected does
+  // nothing at all, which is what used to flake here.
+  await page.locator('[cmdk-item][aria-selected="true"]').first()
+    .waitFor({ state: "attached", timeout: 15000 }).catch(() => {});
+  check("a result is selected and ready for Enter",
+    (await page.locator('[cmdk-item][aria-selected="true"]').count()) === 1);
+
   await page.keyboard.press("Enter");
-  await page.waitForTimeout(1200);
+  await page.waitForURL(/\/b\/|\/directory/, { timeout: 15000 }).catch(() => {});
   check("choosing a result navigates to it", /\/b\/|\/directory/.test(page.url()), page.url());
 
   await context.close();
