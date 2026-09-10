@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { BUILDING_GLYPH, BUILDING_NOUN } from "@/lib/artifacts";
 import { RegionForm } from "@/components/map/region-form";
+import { DemolishBuilding, DissolveDistrict } from "@/components/city/demolish-button";
 
 /** Neighbourhood view. Phase 1 replaces the list with a zoomed-in map region. */
 export default async function NeighborhoodPage({ params }: { params: Promise<{ slug: string }> }) {
@@ -44,13 +45,22 @@ export default async function NeighborhoodPage({ params }: { params: Promise<{ s
         height={hood.height}
       />
 
+      <div className="mt-3">
+        <DissolveDistrict
+          neighborhoodId={hood.id}
+          name={hood.name}
+          buildingCount={(buildings ?? []).length}
+          redirectTo="/city"
+        />
+      </div>
+
       <ul className="mt-6 flex flex-col gap-2">
         {(buildings ?? []).map((b) => (
-          <li key={b.id}>
-            <Link
-              href={`/b/${b.id}`}
-              className="flex items-center gap-2 border-2 border-ink bg-snow px-3 py-2 font-body text-sm shadow-hard"
-            >
+          <li
+            key={b.id}
+            className="flex flex-wrap items-center gap-2 border-2 border-ink bg-snow px-3 py-2 shadow-hard"
+          >
+            <Link href={`/b/${b.id}`} className="flex flex-1 items-center gap-2 font-body text-sm">
               <span aria-hidden className="font-pixel">
                 {BUILDING_GLYPH[b.artifact_type]}
               </span>
@@ -59,6 +69,7 @@ export default async function NeighborhoodPage({ params }: { params: Promise<{ s
                 {BUILDING_NOUN[b.artifact_type]}
               </span>
             </Link>
+            <DemolishBuilding buildingId={b.id} title={b.title} />
           </li>
         ))}
       </ul>

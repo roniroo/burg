@@ -96,6 +96,14 @@ npm run db:reset      # drops, recreates, replays every migration
 npm run seed -- you@example.com --create
 ```
 
+To clear a city without touching the database, use the app: **Directory →
+Start fresh** demolishes every building, or every building and district, once
+you type the city's name. Piece by piece, the map's **Demolish** mode takes
+both — click a building to condemn it, or a district's open ground to condemn
+the district — and a building also comes down from the button beside its
+interior's breadcrumb, or from the Directory. A district can be dissolved from
+its own page or the Directory too.
+
 `npm run db:stop` shuts the stack down; data survives until `db:reset`.
 
 ---
@@ -170,7 +178,8 @@ npm run check
 
 `npm run check` reseeds the demo city first, because several suites consume
 seeded data — promotion turns a note into a building, for one. It is
-destructive to the demo city and nothing else.
+destructive to the demo city and nothing else: the reseed and every suite are
+scoped to `seedtest@burg.local`.
 
 Individual suites:
 
@@ -186,7 +195,13 @@ npx tsx scripts/check-life.ts                   # day/night, ticker, ⌘K
 npx tsx scripts/check-auth.ts                   # password, sign out, link shapes
 npx tsx scripts/check-studio.ts                 # whiteboard tools and saving
 npx tsx scripts/check-a11y.ts                   # axe, normal + reduced motion
+npx tsx scripts/check-demolish.ts               # demolish, dissolve, start fresh
 ```
+
+`check-demolish.ts` runs last in `npm run check` and leaves the demo city
+empty, because that is what it is testing. Reseed afterwards with
+`npm run seed -- seedtest@burg.local`. It is scoped to one account, so a real
+city on the same project is never touched.
 
 A browser check that fails an assertion still exits 0 — the PASS/FAIL lines are
 the source of truth, not the exit code.
@@ -229,7 +244,7 @@ The automated checks do not cover feel. Worth looking at yourself:
 | Script | What it does |
 |---|---|
 | `scripts/seed.ts` | Seeds "Ideaburg". Idempotent; `--create` makes the user too. |
-| `scripts/dev-reset.ts` | Deletes demo cities so the seed can run clean. **Destructive.** |
+| `scripts/dev-reset.ts` | Deletes one account's city so the seed can run clean, defaulting to `seedtest@burg.local`. **Destructive**; `--all` takes every city on the project, real ones included. |
 | `scripts/dev-session.ts` | Mints a browser session cookie for the check scripts. |
 | `scripts/dev-ids.ts` | Prints seeded building ids by artifact type. |
 | `scripts/shot.ts` | Screenshots a route as a signed-in user. |

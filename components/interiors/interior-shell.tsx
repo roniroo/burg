@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { BUILDING_GLYPH, BUILDING_NOUN, type ArtifactType } from "@/lib/artifacts";
+import { DemolishBuilding } from "@/components/city/demolish-button";
 
 /**
  * Shared chrome for every building interior.
@@ -9,6 +10,7 @@ import { BUILDING_GLYPH, BUILDING_NOUN, type ArtifactType } from "@/lib/artifact
  * breadcrumb and the type label.
  */
 export function InteriorShell({
+  buildingId,
   title,
   artifactType,
   neighborhood,
@@ -16,6 +18,7 @@ export function InteriorShell({
   children,
   wide = false,
 }: {
+  buildingId: string;
   title: string;
   artifactType: ArtifactType;
   neighborhood: { name: string; slug: string; biome: string; status: string } | null;
@@ -47,7 +50,13 @@ export function InteriorShell({
             </>
           ) : null}
         </nav>
-        {toolbar}
+        <div className="flex flex-wrap items-center gap-2">
+          {toolbar}
+          {/* Demolition lives up here with the breadcrumb rather than at the
+              foot of the page: it is chrome about the building, not part of
+              whatever is being edited inside it. */}
+          <DemolishBuilding buildingId={buildingId} title={title} redirectTo="/city" />
+        </div>
       </div>
 
       <header className="mt-3 border-b-2 border-ink pb-3">

@@ -17,8 +17,14 @@ import {
   type Zoom,
 } from "@/lib/iso";
 import { canPlace, REJECTION_MESSAGE, type Terrain } from "@/lib/placement";
-import { createBuilding, createNeighborhood } from "@/lib/actions/city";
+import {
+  createBuilding,
+  createNeighborhood,
+  deleteBuilding,
+  deleteNeighborhood,
+} from "@/lib/actions/city";
 import { BuildBar, type BuildDraft } from "./build-bar";
+import { DemolishBar, type DemolishTarget } from "./demolish-bar";
 import { RoadLayer, type MapRoute } from "./road-layer";
 import { ConnectionsPanel, type RouteLink } from "./connections-panel";
 import { solveStaleRoutes } from "@/lib/actions/roads";
@@ -51,6 +57,9 @@ type Props = {
 };
 
 type Camera = { x: number; y: number; zoom: Zoom };
+
+/** What demolish mode has picked out. Resolved to a bar target on render. */
+type Condemned = { kind: "building" | "district"; id: string };
 
 /**
  * The city map: a DOM-rendered isometric grid.
@@ -86,6 +95,14 @@ export function CityMap({
   const [ghost, setGhost] = useState<{ x: number; y: number } | null>(null);
   const [buildHint, setBuildHint] = useState<string | null>(null);
   const [raising, setRaising] = useState<{ x: number; y: number } | null>(null);
+
+  // Demolish mode. Clicking on the map only ever condemns -- a building if
+  // one was clicked, otherwise the district whose ground was -- and the bar
+  // is the only thing that actually takes anything down.
+  const [demolishing, setDemolishing] = useState(false);
+  const [condemned, setCondemned] = useState<Condemned | null>(null);
+  const [demolishHint, setDemolishHint] = useState<string | null>(null);
+  const [razing, setRazing] = useState(false);
 
   // Roads
   const [hoveredRoad, setHoveredRoad] = useState<string | null>(null);
@@ -269,6 +286,21 @@ export function CityMap({
 
   const handlePaved = useCallback(() => setPavingIds([]), []);
 
+  /**
+   * What the Build bar opens on.
+   *
+   * A building needs a district to stand in, so on a cleared map -- or a brand
+   * new one -- opening on the building picker would refuse every lot the user
+   * aimed at. Start them on the survey instead.
+   */
+  const openingDraft = useCallback(
+    (): BuildDraft =>
+      neighborhoods.length === 0
+        ? { kind: "district", name: "", biome: "downtown", width: 8, height: 6 }
+        : { kind: "building", artifactType: "doc", title: "" },
+    [neighborhoods.length],
+  );
+
   const labelForRoute = useCallback(
     (route: MapRoute) => {
       const count = `${route.linkCount} connection${route.linkCount === 1 ? "" : "s"}`;
@@ -361,7 +393,18 @@ export function CityMap({
   }
 
   function endDrag(event: React.PointerEvent<HTMLDivElement>) {
-    if (dragState.current?.pointerId === event.pointerId) dragState.current = null;
+    const drag = dragState.current;
+    if (drag?.pointerId !== event.pointerId) return;
+    dragState.current = null;
+
+    // Demolish mode still needs to pan, so a press on the ground is only a
+    // pick if the pointer barely moved. Buildings and chrome never start a
+    // drag, so reaching here means the press began on open map.
+    if (!demolishing) return;
+    const moved = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
+    if (moved > 4) return;
+    const tile = tileAtPointer(event.clientX, event.clientY);
+    if (tile) condemnAt(tile);
   }
 
   function onWheel(event: React.WheelEvent<HTMLDivElement>) {
@@ -449,6 +492,10 @@ export function CityMap({
         void (draft.kind === "building" ? placeBuilding(cursor) : placeDistrict(cursor));
         return;
       }
+      if (demolishing) {
+        condemnAt(cursor);
+        return;
+      }
       const building = buildingAt(cursor.x, cursor.y);
       if (building) enterBuilding(building.id);
       return;
@@ -458,6 +505,14 @@ export function CityMap({
       event.preventDefault();
       setDraft(null);
       setGhost(null);
+      return;
+    }
+
+    if (event.key === "Escape" && demolishing) {
+      event.preventDefault();
+      // One Escape drops the condemned building, a second leaves the mode.
+      if (condemned) setCondemned(null);
+      else stopDemolishing();
       return;
     }
 
@@ -563,6 +618,102 @@ export function CityMap({
     [reduceMotion, router],
   );
 
+  /** Leave demolish mode, forgetting whatever was condemned. */
+  const stopDemolishing = useCallback(() => {
+    setDemolishing(false);
+    setCondemned(null);
+    setDemolishHint(null);
+  }, []);
+
+  /** What the bar is offering to take down, resolved for display. */
+  const condemnedTarget = useMemo((): DemolishTarget | null => {
+    if (!condemned) return null;
+
+    if (condemned.kind === "building") {
+      const building = buildings.find((b) => b.id === condemned.id);
+      return building
+        ? {
+            kind: "building",
+            id: building.id,
+            title: building.title,
+            noun: BUILDING_NOUN[building.artifact_type],
+          }
+        : null;
+    }
+
+    const hood = hoodById.get(condemned.id);
+    return hood
+      ? {
+          kind: "district",
+          id: hood.id,
+          name: hood.name,
+          buildingCount: buildings.filter((b) => b.neighborhood_id === hood.id).length,
+        }
+      : null;
+  }, [condemned, buildings, hoodById]);
+
+  /**
+   * Take the condemned thing down.
+   *
+   * Demolish mode stays on afterwards: clearing a city is a repeated act, and
+   * dropping the user back out to the map between each one is a worse tool
+   * than leaving the bulldozer running.
+   */
+  const razeCondemned = useCallback(async () => {
+    const target = condemnedTarget;
+    if (!target || razing) return;
+
+    setRazing(true);
+    setDemolishHint(target.kind === "building" ? "Demolishing…" : "Dissolving…");
+    const result =
+      target.kind === "building"
+        ? await deleteBuilding({ buildingId: target.id })
+        : await deleteNeighborhood({ neighborhoodId: target.id });
+    setRazing(false);
+
+    if (!result.ok) {
+      setDemolishHint(result.error);
+      return;
+    }
+
+    setCondemned(null);
+    setDemolishHint(
+      target.kind === "building" ? `${target.title} came down.` : `${target.name} is gone.`,
+    );
+    router.refresh();
+  }, [condemnedTarget, razing, router]);
+
+  /** The district the bar is offering to dissolve, for marking on the ground. */
+  const condemnedRegion = useMemo(
+    () => (condemned?.kind === "district" ? (hoodById.get(condemned.id) ?? null) : null),
+    [condemned, hoodById],
+  );
+
+  /**
+   * Condemn whatever is on a tile: the building standing on it, or failing
+   * that the district that owns the ground. Empty ground clears the selection,
+   * which is how a click on grass reads.
+   */
+  const condemnAt = useCallback(
+    (tile: { x: number; y: number }) => {
+      setDemolishHint(null);
+      const building = buildings.find(
+        (b) =>
+          tile.x >= b.tile_x &&
+          tile.x < b.tile_x + b.footprint_w &&
+          tile.y >= b.tile_y &&
+          tile.y < b.tile_y + b.footprint_h,
+      );
+      if (building) {
+        setCondemned({ kind: "building", id: building.id });
+        return;
+      }
+      const hood = neighborhoods.find((n) => isInRegion(tile.x, tile.y, n));
+      setCondemned(hood ? { kind: "district", id: hood.id } : null);
+    },
+    [buildings, neighborhoods],
+  );
+
   return (
     <div
       ref={viewportRef}
@@ -576,7 +727,7 @@ export function CityMap({
       onPointerCancel={endDrag}
       onWheel={onWheel}
       className={`relative h-full w-full touch-none overflow-hidden select-none ${
-        draft ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"
+        draft || demolishing ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"
       }`}
     >
       <AmbientLayer light={light} />
@@ -636,6 +787,10 @@ export function CityMap({
           onPaved={handlePaved}
         />
 
+        {/* Ground marked for clearance. Drawn at the same depth as the tiles
+            it covers, so anything still standing on it reads above the mark. */}
+        {condemnedRegion ? <CondemnedRegion region={condemnedRegion} range={range} /> : null}
+
         {/* Buildings */}
         {visibleBuildings.map((b) => {
           const hood = hoodById.get(b.neighborhood_id) ?? null;
@@ -651,6 +806,7 @@ export function CityMap({
             b.floors,
           );
           const isEntering = entering === b.id;
+          const isCondemned = condemned?.kind === "building" && condemned.id === b.id;
 
           return (
             <button
@@ -659,9 +815,20 @@ export function CityMap({
               data-biome={hood?.biome}
               data-status={hood?.status}
               type="button"
-              onClick={() => enterBuilding(b.id)}
+              onClick={() => {
+                if (demolishing) {
+                  setDemolishHint(null);
+                  setCondemned({ kind: "building", id: b.id });
+                  return;
+                }
+                enterBuilding(b.id);
+              }}
               onFocus={() => setCursor({ x: b.tile_x, y: b.tile_y })}
-              aria-label={`${BUILDING_NOUN[b.artifact_type]}: ${b.title}${hood ? `, in ${hood.name}` : ""}`}
+              aria-label={
+                demolishing
+                  ? `Condemn ${BUILDING_NOUN[b.artifact_type]}: ${b.title}`
+                  : `${BUILDING_NOUN[b.artifact_type]}: ${b.title}${hood ? `, in ${hood.name}` : ""}`
+              }
               className="group absolute block border-0 bg-transparent p-0"
               style={{
                 left: snap(screen.x - geometry.originX),
@@ -671,11 +838,16 @@ export function CityMap({
                 zIndex: depthFor(b.tile_x, b.tile_y, b.footprint_w, b.footprint_h) + 1,
                 transform: isEntering
                   ? "translateY(2px) scaleY(0.92)"
-                  : highlightedBuildings.has(b.id)
+                  : highlightedBuildings.has(b.id) || isCondemned
                     ? "translateY(-2px)"
                     : undefined,
                 filter: highlightedBuildings.has(b.id) ? "drop-shadow(0 0 0 var(--color-gold))" : undefined,
-                outline: highlightedBuildings.has(b.id) ? "2px solid var(--color-gold)" : undefined,
+                outline: isCondemned
+                  ? "3px solid var(--color-brick)"
+                  : highlightedBuildings.has(b.id)
+                    ? "2px solid var(--color-gold)"
+                    : undefined,
+                outlineOffset: isCondemned ? 2 : undefined,
                 transition: reduceMotion ? "none" : "transform 120ms steps(3, end)",
               }}
             >
@@ -713,8 +885,9 @@ export function CityMap({
         {raising ? <Scaffold tile={raising} reduceMotion={reduceMotion} /> : null}
       </div>
 
-      {/* Build mode dims the world so the ghost reads clearly. */}
-      {draft ? (
+      {/* Either mode dims the world so the ghost, or the condemned building,
+          reads clearly against it. */}
+      {draft || demolishing ? (
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0"
@@ -738,19 +911,49 @@ export function CityMap({
             }
           />
         </div>
-      ) : (
-        <button
-          type="button"
-          data-map-chrome
-          onClick={() => {
-            setDraft({ kind: "building", artifactType: "doc", title: "" });
-            setBuildHint(null);
-          }}
-          className="absolute left-3 top-3 z-10 border-2 border-ink bg-amber px-3 py-1 font-pixel text-[10px] uppercase shadow-hard"
-        >
-          Build
-        </button>
-      )}
+      ) : null}
+
+      {demolishing ? (
+        <div data-map-chrome className="pointer-events-none absolute bottom-3 left-3 z-10 max-w-[min(46rem,calc(100%-1.5rem))]">
+          <DemolishBar
+            target={condemnedTarget}
+            pending={razing}
+            hint={demolishHint}
+            onConfirm={() => void razeCondemned()}
+            onClear={() => {
+              setCondemned(null);
+              setDemolishHint(null);
+            }}
+            onExit={stopDemolishing}
+          />
+        </div>
+      ) : null}
+
+      {!draft && !demolishing ? (
+        <div data-map-chrome className="absolute left-3 top-3 z-10 flex gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setDraft(openingDraft());
+              setBuildHint(null);
+            }}
+            className="border-2 border-ink bg-amber px-3 py-1 font-pixel text-[10px] uppercase shadow-hard"
+          >
+            Build
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setDemolishing(true);
+              setCondemned(null);
+              setDemolishHint(null);
+            }}
+            className="border-2 border-ink bg-paper px-3 py-1 font-pixel text-[10px] uppercase text-brick shadow-hard"
+          >
+            Demolish
+          </button>
+        </div>
+      ) : null}
 
       {selectedRoad ? (() => {
         const route = routes.find((r) => r.id === selectedRoad);
@@ -895,6 +1098,53 @@ function Scaffold({ tile, reduceMotion }: { tile: { x: number; y: number }; redu
         </svg>
       </div>
     </>
+  );
+}
+
+/** A condemned district, marked out tile by tile in demolition red. */
+function CondemnedRegion({
+  region,
+  range,
+}: {
+  region: MapNeighborhood;
+  range: { minX: number; maxX: number; minY: number; maxY: number };
+}) {
+  const tiles: Array<{ x: number; y: number }> = [];
+  for (let y = Math.max(region.origin_y, range.minY); y < Math.min(region.origin_y + region.height, range.maxY + 1); y++) {
+    for (let x = Math.max(region.origin_x, range.minX); x < Math.min(region.origin_x + region.width, range.maxX + 1); x++) {
+      tiles.push({ x, y });
+    }
+  }
+
+  return (
+    <div aria-hidden>
+      {tiles.map((tile) => {
+        const screen = tileToScreen(tile.x, tile.y);
+        return (
+          <div
+            key={`c-${tile.x}-${tile.y}`}
+            className="pointer-events-none absolute"
+            style={{
+              left: snap(screen.x - TILE_W / 2),
+              top: snap(screen.y),
+              width: TILE_W,
+              height: TILE_H,
+              zIndex: tile.x + tile.y,
+            }}
+          >
+            <svg width={TILE_W} height={TILE_H} className="pixelated block" shapeRendering="crispEdges">
+              <polygon
+                points={TILE_DIAMOND}
+                fill="var(--color-brick)"
+                fillOpacity={0.45}
+                stroke="var(--color-brick)"
+                strokeWidth={1}
+              />
+            </svg>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

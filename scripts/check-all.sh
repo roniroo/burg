@@ -19,7 +19,7 @@ step "lint";       npx eslint .     || fail=1
 step "build";      npm run build 2>&1 | grep -E "Compiled|Failed|error" || fail=1
 
 step "reseed"
-npx tsx scripts/dev-reset.ts >/dev/null 2>&1
+npx tsx scripts/dev-reset.ts seedtest@burg.local >/dev/null 2>&1
 npm run seed -- seedtest@burg.local --create 2>&1 | grep -E "Seeded|Created" || fail=1
 npx tsx scripts/dev-session.ts seedtest@burg.local || fail=1
 
@@ -40,6 +40,8 @@ step "roads";      npx tsx scripts/check-roads.ts               2>&1 | grep -E '
 step "life";       npx tsx scripts/check-life.ts                2>&1 | grep -E '^(PASS|FAIL)|page error'
 step "studio";     npx tsx scripts/check-studio.ts              2>&1 | grep -E '^(PASS|FAIL)|page error'
 step "a11y";       npx tsx scripts/check-a11y.ts                2>&1 | grep -E '^(PASS|FAIL)'
+# Last: it empties the demo city, which every suite above needs.
+step "demolish";   npx tsx scripts/check-demolish.ts            2>&1 | grep -E '^(PASS|FAIL)|page error'
 
 printf '\n'
 if [ "$fail" -eq 0 ]; then

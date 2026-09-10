@@ -438,3 +438,196 @@ export async function moveNeighborhood(input: unknown): Promise<ActionResult> {
   revalidatePath("/directory");
   return { ok: true };
 }
+
+// --------------------------------------------------------------------------
+// Demolition
+// --------------------------------------------------------------------------
+//
+// Deleting is the one direction the database does most of the work in. Every
+// artifact payload, link and road route hangs off `buildings` with `on delete
+// cascade`, so removing the building row removes the document, the rows, the
+// notes, the links pointing at it and the roads that carried them. What SQL
+// cannot do is the bookkeeping around it: the activity ticker keeps announcing
+// a building that no longer exists, and a dissolved district leaves its
+// cobbles behind, because `tiles.neighborhood_id` is `on delete set null`.
+
+const deleteBuildingSchema = z.object({ buildingId: z.uuid() });
+
+/**
+ * Demolish one building, and with it everything kept inside.
+ *
+ * RLS is the authorization boundary -- a non-member's delete matches no rows
+ * -- so the read here is for the headline and the cleanup, not for the check.
+ */
+export async function deleteBuilding(input: unknown): Promise<ActionResult<{ title: string }>> {
+  const parsed = deleteBuildingSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: "Invalid building." };
+
+  const supabase = await createClient();
+  const { data: building } = await supabase
+    .from("buildings")
+    .select("id, title, city_id, neighborhood_id")
+    .eq("id", parsed.data.buildingId)
+    .maybeSingle();
+  if (!building) return { ok: false, error: "That building is already gone." };
+
+  const { data: hood } = await supabase
+    .from("neighborhoods")
+    .select("name")
+    .eq("id", building.neighborhood_id)
+    .maybeSingle();
+
+  const { error } = await supabase.from("buildings").delete().eq("id", building.id);
+  if (error) return { ok: false, error: error.message };
+
+  // Headlines outlive their subjects -- `activity.subject_id` carries no
+  // foreign key, deliberately, so the ticker can talk about things that have
+  // since changed. A demolished building is the one case where that reads as
+  // a bug, so its old headlines go with it.
+  await supabase.from("activity").delete().eq("city_id", building.city_id).eq("subject_id", building.id);
+  await supabase.from("activity").insert({
+    city_id: building.city_id,
+    verb: "demolished",
+    subject_type: "building",
+    subject_id: null,
+    headline: `${building.title} demolished${hood ? `; the lot in ${hood.name} stands empty` : ""}`,
+  });
+
+  revalidatePath("/city");
+  revalidatePath("/directory");
+  revalidatePath("/n/[slug]", "page");
+  return { ok: true, data: { title: building.title } };
+}
+
+const deleteNeighborhoodSchema = z.object({ neighborhoodId: z.uuid() });
+
+/**
+ * Dissolve a district, demolishing everything standing in it.
+ *
+ * The tiles it claimed are deleted rather than reset: an absent tile row
+ * renders as plain grass, which is what unclaimed ground is everywhere else
+ * on the map. They have to go first, while they still know which district
+ * they belonged to.
+ */
+export async function deleteNeighborhood(
+  input: unknown,
+): Promise<ActionResult<{ name: string; demolished: number }>> {
+  const parsed = deleteNeighborhoodSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: "Invalid neighbourhood." };
+
+  const supabase = await createClient();
+  const { data: hood } = await supabase
+    .from("neighborhoods")
+    .select("id, name, city_id")
+    .eq("id", parsed.data.neighborhoodId)
+    .maybeSingle();
+  if (!hood) return { ok: false, error: "That neighbourhood is already gone." };
+
+  const { data: buildings } = await supabase
+    .from("buildings")
+    .select("id")
+    .eq("neighborhood_id", hood.id);
+  const buildingIds = (buildings ?? []).map((b) => b.id);
+
+  const { error: tileError } = await supabase.from("tiles").delete().eq("neighborhood_id", hood.id);
+  if (tileError) return { ok: false, error: tileError.message };
+
+  const { error } = await supabase.from("neighborhoods").delete().eq("id", hood.id);
+  if (error) return { ok: false, error: error.message };
+
+  const subjects = [...buildingIds, hood.id];
+  await supabase.from("activity").delete().eq("city_id", hood.city_id).in("subject_id", subjects);
+  await supabase.from("activity").insert({
+    city_id: hood.city_id,
+    verb: "dissolved",
+    subject_type: "neighborhood",
+    subject_id: null,
+    headline:
+      buildingIds.length > 0
+        ? `${hood.name} dissolved; ${buildingIds.length} building${buildingIds.length === 1 ? "" : "s"} came down with it`
+        : `${hood.name} dissolved; the survey markers are pulled up`,
+  });
+
+  revalidatePath("/city");
+  revalidatePath("/directory");
+  revalidatePath("/n/[slug]", "page");
+  return { ok: true, data: { name: hood.name, demolished: buildingIds.length } };
+}
+
+const clearCitySchema = z.object({
+  cityId: z.uuid(),
+  scope: z.enum(["buildings", "everything"]),
+  /** The city's own name, typed by hand. Checked server-side, not just in the UI. */
+  confirmName: z.string().trim().min(1),
+});
+
+/**
+ * Start over.
+ *
+ * `buildings` razes every building and leaves the districts standing;
+ * `everything` takes the districts and their ground too, back to open grass.
+ * The typed name is re-checked here because the button that guards it is only
+ * a button -- the action is a public endpoint like any other.
+ */
+export async function clearCity(
+  input: unknown,
+): Promise<ActionResult<{ buildings: number; neighborhoods: number }>> {
+  const parsed = clearCitySchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: "Invalid request." };
+
+  const { cityId, scope, confirmName } = parsed.data;
+  const supabase = await createClient();
+
+  const { data: city } = await supabase.from("cities").select("id, name").eq("id", cityId).maybeSingle();
+  if (!city) return { ok: false, error: "That city no longer exists." };
+  if (confirmName.toLowerCase() !== city.name.toLowerCase()) {
+    return { ok: false, error: `Type the city's name exactly — "${city.name}" — to confirm.` };
+  }
+
+  const [{ data: buildings }, { data: hoods }] = await Promise.all([
+    supabase.from("buildings").select("id").eq("city_id", city.id),
+    supabase.from("neighborhoods").select("id").eq("city_id", city.id),
+  ]);
+  const buildingCount = (buildings ?? []).length;
+  const hoodCount = (hoods ?? []).length;
+
+  if (scope === "everything") {
+    // Only ground a district claimed. Water and anything else the terrain
+    // generator laid down is landscape, not content, and stays.
+    const { error: tileError } = await supabase
+      .from("tiles")
+      .delete()
+      .eq("city_id", city.id)
+      .not("neighborhood_id", "is", null);
+    if (tileError) return { ok: false, error: tileError.message };
+
+    // Districts cascade to their buildings, and buildings to everything else.
+    const { error } = await supabase.from("neighborhoods").delete().eq("city_id", city.id);
+    if (error) return { ok: false, error: error.message };
+  }
+
+  // Buildings outside any surviving district, or all of them when the
+  // districts were kept.
+  const { error: buildingError } = await supabase.from("buildings").delete().eq("city_id", city.id);
+  if (buildingError) return { ok: false, error: buildingError.message };
+
+  await supabase.from("activity").delete().eq("city_id", city.id);
+  await supabase.from("activity").insert({
+    city_id: city.id,
+    verb: "cleared",
+    subject_type: "city",
+    subject_id: null,
+    headline:
+      scope === "everything"
+        ? `${city.name} cleared to open ground; the survey starts again`
+        : `${city.name} cleared; ${buildingCount} building${buildingCount === 1 ? "" : "s"} came down and the districts remain`,
+  });
+
+  revalidatePath("/city");
+  revalidatePath("/directory");
+  revalidatePath("/n/[slug]", "page");
+  return {
+    ok: true,
+    data: { buildings: buildingCount, neighborhoods: scope === "everything" ? hoodCount : 0 },
+  };
+}

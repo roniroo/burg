@@ -6,6 +6,8 @@ import {
   getConnections,
   getCurrentCity,
 } from "@/lib/queries";
+import { DemolishBuilding, DissolveDistrict } from "@/components/city/demolish-button";
+import { StartFresh } from "@/components/city/start-fresh";
 
 export const metadata = { title: "Directory — Burg" };
 
@@ -24,6 +26,7 @@ export default async function DirectoryPage() {
   if (!tree) return null;
 
   const crossings = connections.filter((c) => c.crossesNeighborhoods).length;
+  const buildingCount = tree.neighborhoods.reduce((n, hood) => n + hood.buildings.length, 0);
 
   return (
     <div className="mx-auto max-w-4xl p-6">
@@ -40,26 +43,36 @@ export default async function DirectoryPage() {
         <ul className="mt-3 flex flex-col gap-4">
           {tree.neighborhoods.map((n) => (
             <li key={n.id}>
-              <h3 className="font-display text-lg">
-                <Link href={`/n/${n.slug}`}>{n.name}</Link>{" "}
-                <span className="font-pixel text-[10px] uppercase text-stone">
-                  {n.biome} · {n.status}
-                </span>
-              </h3>
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h3 className="font-display text-lg">
+                  <Link href={`/n/${n.slug}`}>{n.name}</Link>{" "}
+                  <span className="font-pixel text-[10px] uppercase text-stone">
+                    {n.biome} · {n.status}
+                  </span>
+                </h3>
+                <DissolveDistrict
+                  neighborhoodId={n.id}
+                  name={n.name}
+                  buildingCount={n.buildings.length}
+                />
+              </div>
               {n.buildings.length === 0 ? (
                 <p className="pl-4 font-body text-sm text-stone">No buildings yet.</p>
               ) : (
                 <ul className="mt-1 flex flex-col gap-1 border-l-2 border-mist pl-4">
                   {n.buildings.map((b) => (
-                    <li key={b.id} className="font-body text-sm">
+                    <li key={b.id} className="flex flex-wrap items-center gap-2 font-body text-sm">
                       <Link href={`/b/${b.id}`} className="underline decoration-mist underline-offset-4">
                         <span aria-hidden className="mr-2 font-pixel">
                           {BUILDING_GLYPH[b.artifact_type]}
                         </span>
                         {BUILDING_NOUN[b.artifact_type]}: {b.title}
                       </Link>
-                      <span className="ml-2 font-pixel text-[10px] uppercase text-stone">
+                      <span className="font-pixel text-[10px] uppercase text-stone">
                         tile {b.tile_x},{b.tile_y}
+                      </span>
+                      <span className="ml-auto">
+                        <DemolishBuilding buildingId={b.id} title={b.title} />
                       </span>
                     </li>
                   ))}
@@ -129,6 +142,22 @@ export default async function DirectoryPage() {
             </tbody>
           </table>
         </div>
+      </section>
+
+      <section aria-labelledby="start-fresh" className="mt-10 mb-6">
+        <h2 id="start-fresh" className="font-display text-xl text-brick">
+          Start fresh
+        </h2>
+        <p className="mt-1 font-body text-sm text-stone">
+          Clears {tree.city.name} in one go. Every document, table, board, canvas and link inside a
+          demolished building goes with it, and none of it comes back.
+        </p>
+        <StartFresh
+          cityId={tree.city.id}
+          cityName={tree.city.name}
+          buildingCount={buildingCount}
+          neighborhoodCount={tree.neighborhoods.length}
+        />
       </section>
     </div>
   );
