@@ -8,6 +8,7 @@ import {
   READING_NOTES_PARAGRAPHS,
   RECIPES_PARAGRAPHS,
 } from "./content";
+import { spriteFootprint, type SpriteKey, type SpriteVariant } from "@/lib/sprites";
 
 type Client = SupabaseClient<Database>;
 
@@ -213,19 +214,28 @@ export async function seedIdeaburg(supabase: Client, userId: string): Promise<Se
   }
 
   // --- buildings ----------------------------------------------------------
+  // Footprint and floors come from the sprite recipe rather than being written
+  // out here: the sprite is drawn to whatever shape the row stores, so a
+  // hand-typed size that drifts from the recipe squeezes the facade onto the
+  // wrong face and mis-sorts the building against its neighbours.
+  const lot = (key: SpriteKey, variant: SpriteVariant) => {
+    const { w, h, floors } = spriteFootprint(key, variant);
+    return { sprite_key: key, sprite_variant: variant, footprint_w: w, footprint_h: h, floors };
+  };
+
   fail("buildings")(
     (
       await supabase.from("buildings").insert([
-        { id: launchBriefId, city_id: cityId, neighborhood_id: harborId, title: "Launch Brief", artifact_type: "doc", sprite_key: "library", sprite_variant: 1, tile_x: 3, tile_y: 3, footprint_w: 2, footprint_h: 2, floors: 2, position: 0 },
-        { id: roadmapId, city_id: cityId, neighborhood_id: harborId, title: "Roadmap", artifact_type: "table", sprite_key: "warehouse", sprite_variant: 1, tile_x: 7, tile_y: 3, footprint_w: 2, footprint_h: 2, floors: 1, position: 1 },
-        { id: harborBoardId, city_id: cityId, neighborhood_id: harborId, title: "Harbor Plaza Board", artifact_type: "board", sprite_key: "noticeboard", sprite_variant: 1, tile_x: 5, tile_y: 7, footprint_w: 1, footprint_h: 1, floors: 1, position: 2 },
-        { id: referencesId, city_id: cityId, neighborhood_id: harborId, title: "References", artifact_type: "kiosk", sprite_key: "newsstand", sprite_variant: 1, tile_x: 10, tile_y: 8, footprint_w: 1, footprint_h: 1, floors: 1, position: 3 },
+        { id: launchBriefId, city_id: cityId, neighborhood_id: harborId, title: "Launch Brief", artifact_type: "doc", ...lot("library", 1), tile_x: 3, tile_y: 3, position: 0 },
+        { id: roadmapId, city_id: cityId, neighborhood_id: harborId, title: "Roadmap", artifact_type: "table", ...lot("warehouse", 1), tile_x: 7, tile_y: 3, position: 1 },
+        { id: harborBoardId, city_id: cityId, neighborhood_id: harborId, title: "Harbor Plaza Board", artifact_type: "board", ...lot("noticeboard", 1), tile_x: 5, tile_y: 7, position: 2 },
+        { id: referencesId, city_id: cityId, neighborhood_id: harborId, title: "References", artifact_type: "kiosk", ...lot("newsstand", 1), tile_x: 10, tile_y: 8, position: 3 },
 
-        { id: readingNotesId, city_id: cityId, neighborhood_id: oldTownId, title: "Reading Notes", artifact_type: "doc", sprite_key: "library", sprite_variant: 2, tile_x: 21, tile_y: 5, footprint_w: 2, footprint_h: 2, floors: 3, position: 0 },
-        { id: recipesId, city_id: cityId, neighborhood_id: oldTownId, title: "Recipes", artifact_type: "doc", sprite_key: "library", sprite_variant: 3, tile_x: 25, tile_y: 5, footprint_w: 1, footprint_h: 1, floors: 2, position: 1 },
-        { id: oldTownBoardId, city_id: cityId, neighborhood_id: oldTownId, title: "Old Town Board", artifact_type: "board", sprite_key: "noticeboard", sprite_variant: 2, tile_x: 23, tile_y: 9, footprint_w: 1, footprint_h: 1, floors: 1, position: 2 },
+        { id: readingNotesId, city_id: cityId, neighborhood_id: oldTownId, title: "Reading Notes", artifact_type: "doc", ...lot("library", 2), tile_x: 21, tile_y: 5, position: 0 },
+        { id: recipesId, city_id: cityId, neighborhood_id: oldTownId, title: "Recipes", artifact_type: "doc", ...lot("library", 3), tile_x: 25, tile_y: 5, position: 1 },
+        { id: oldTownBoardId, city_id: cityId, neighborhood_id: oldTownId, title: "Old Town Board", artifact_type: "board", ...lot("noticeboard", 2), tile_x: 23, tile_y: 9, position: 2 },
 
-        { id: fieldNotesId, city_id: cityId, neighborhood_id: pinegroveId, title: "Terrain Notes", artifact_type: "doc", sprite_key: "library", sprite_variant: 1, tile_x: 8, tile_y: 22, footprint_w: 1, footprint_h: 1, floors: 1, position: 0 },
+        { id: fieldNotesId, city_id: cityId, neighborhood_id: pinegroveId, title: "Terrain Notes", artifact_type: "doc", ...lot("library", 1), tile_x: 8, tile_y: 22, position: 0 },
       ])
     ).error,
   );

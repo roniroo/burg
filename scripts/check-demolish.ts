@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../lib/database.types";
+import { smokeCity } from "./smoke-city";
 
 config({ path: ".env.local", quiet: true });
 const admin = createClient<Database>(
@@ -25,17 +26,10 @@ const check = (n: string, ok: boolean, d = "") => {
 
 // Everything is scoped to the smoke-test user's city; another city on the same
 // project (a real one) must not be counted, let alone cleared.
-const email = process.argv[2] ?? "seedtest@burg.local";
-const { data: users } = await admin.auth.admin.listUsers({ perPage: 1000 });
-const owner = users.users.find((u) => u.email?.toLowerCase() === email.toLowerCase());
-if (!owner) {
-  console.error(`no user ${email}`);
-  process.exit(1);
-}
-const { data: city } = await admin.from("cities").select("id, name").eq("owner_id", owner.id).limit(1).single();
+const city = await smokeCity(admin, process.argv.find((a) => a.includes("@")));
 
 const countBuildings = async () =>
-  (await admin.from("buildings").select("id", { count: "exact", head: true }).eq("city_id", city!.id)).count ?? 0;
+  (await admin.from("buildings").select("id", { count: "exact", head: true }).eq("city_id", city.id)).count ?? 0;
 
 /** Tile -> viewport point, read off the map's own camera transform. */
 const screenFor = (tx: number, ty: number) =>
@@ -73,20 +67,21 @@ check("the world dims while demolishing",
 // The first building whose sprite is wholly on screen -- no panning needed,
 // the camera frames the districts on load.
 const { data: candidates } = await admin
-  .from("buildings").select("id, title, artifact_type").eq("city_id", city!.id).order("created_at");
+  .from("buildings").select("id, title, artifact_type").eq("city_id", city.id).order("created_at");
 let victim: { id: string; title: string; artifact_type: string } | null = null;
-let box: { x: number; y: number; width: number; height: number } | null = null;
 for (const b of candidates ?? []) {
   const found = await page.locator(`[data-building="${b.id}"]`).boundingBox();
   if (found && found.x > 0 && found.y > 0 && found.x + found.width < 1400 && found.y + found.height < 900) {
     victim = b;
-    box = found;
     break;
   }
 }
 check("found a building on screen to condemn", !!victim, victim?.title ?? "");
 
-await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height - 6);
+// Click the element rather than a computed point. A sprite's bounding box is
+// padded a few pixels past its art, and that bottom sliver is covered by the
+// ground tile of the row in front -- aiming there condemns the district.
+await page.locator(`[data-building="${victim!.id}"]`).click();
 await page.waitForTimeout(400);
 await page.screenshot({ path: "scripts/shots/demolish-condemned.png" });
 
@@ -126,20 +121,22 @@ check("demolish mode stays open for the next one",
   (await page.getByRole("button", { name: /^done$/i }).count()) === 1);
 
 // Escape steps back out: first the condemned building, then the mode.
-let second: { x: number; y: number; width: number; height: number } | null = null;
+let second: string | null = null;
 for (const b of candidates ?? []) {
   if (b.id === victim!.id) continue;
   const found = await page.locator(`[data-building="${b.id}"]`).boundingBox();
   if (found && found.x > 0 && found.y > 0 && found.x + found.width < 1400 && found.y + found.height < 900) {
-    second = found;
+    second = b.id;
     break;
   }
 }
 if (second) {
-  await page.mouse.click(second.x + second.width / 2, second.y + second.height - 6);
+  await page.locator(`[data-building="${second}"]`).click();
   await page.waitForTimeout(300);
+  const secondBar = await page.locator("[data-demolish-bar]").innerText();
   check("a second building can be condemned",
-    (await page.getByRole("button", { name: /demolish it/i }).count()) === 1);
+    (await page.getByRole("button", { name: /demolish it/i }).count()) === 1,
+    secondBar.replace(/\n/g, " ").trim());
 
   await page.locator('[role="application"]').focus();
   await page.keyboard.press("Escape");
@@ -163,7 +160,7 @@ await page.waitForTimeout(300);
 
 const { data: mapHood } = await admin
   .from("neighborhoods").select("id, name, origin_x, origin_y, width, height")
-  .eq("city_id", city!.id).order("position").limit(1).single();
+  .eq("city_id", city.id).order("position").limit(1).single();
 const { data: onHood } = await admin
   .from("buildings").select("tile_x, tile_y, footprint_w, footprint_h").eq("neighborhood_id", mapHood!.id);
 
@@ -226,7 +223,7 @@ await page.waitForTimeout(300);
 
 // --- demolishing from inside --------------------------------------------
 const { data: next } = await admin
-  .from("buildings").select("id, title").eq("city_id", city!.id).limit(1).single();
+  .from("buildings").select("id, title").eq("city_id", city.id).limit(1).single();
 await page.goto(`http://localhost:3000/b/${next!.id}`, { waitUntil: "networkidle" });
 await page.getByRole("button", { name: /^demolish$/i }).click();
 await page.waitForTimeout(200);
@@ -241,7 +238,7 @@ check("and removes the building", !goneToo);
 
 // --- dissolving a district ----------------------------------------------
 const { data: hood } = await admin
-  .from("neighborhoods").select("id, slug, name").eq("city_id", city!.id).order("position").limit(1).single();
+  .from("neighborhoods").select("id, slug, name").eq("city_id", city.id).order("position").limit(1).single();
 const { count: hoodBuildings } = await admin
   .from("buildings").select("id", { count: "exact", head: true }).eq("neighborhood_id", hood!.id);
 
@@ -273,7 +270,7 @@ await nameField.fill("not the city name");
 check("a wrong name leaves it disabled", await clearButton.isDisabled());
 
 await page.getByRole("radio", { name: /everything/i }).click();
-await nameField.fill(city!.name);
+await nameField.fill(city.name);
 await page.waitForTimeout(200);
 check("the right name arms it", !(await clearButton.isDisabled()));
 await page.screenshot({ path: "scripts/shots/demolish-start-fresh.png" });
@@ -283,14 +280,14 @@ await page.waitForTimeout(3000);
 
 const finalBuildings = await countBuildings();
 const { count: finalHoods } = await admin
-  .from("neighborhoods").select("id", { count: "exact", head: true }).eq("city_id", city!.id);
+  .from("neighborhoods").select("id", { count: "exact", head: true }).eq("city_id", city.id);
 const { count: finalTiles } = await admin
-  .from("tiles").select("x", { count: "exact", head: true }).eq("city_id", city!.id).not("neighborhood_id", "is", null);
+  .from("tiles").select("x", { count: "exact", head: true }).eq("city_id", city.id).not("neighborhood_id", "is", null);
 check("starting fresh clears every building", finalBuildings === 0, `${finalBuildings} left`);
 check("and every district", (finalHoods ?? 0) === 0, `${finalHoods} left`);
 check("and the ground they claimed", (finalTiles ?? 0) === 0, `${finalTiles} left`);
 
-const { data: stillThere } = await admin.from("cities").select("id, name").eq("id", city!.id).maybeSingle();
+const { data: stillThere } = await admin.from("cities").select("id, name").eq("id", city.id).maybeSingle();
 check("the city itself survives", !!stillThere, stillThere?.name ?? "gone");
 
 await page.goto("http://localhost:3000/city", { waitUntil: "networkidle" });
@@ -317,7 +314,7 @@ await page.mouse.click(point.x, point.y);
 await page.waitForTimeout(2500);
 
 const { data: reborn } = await admin
-  .from("neighborhoods").select("id, name").eq("city_id", city!.id).maybeSingle();
+  .from("neighborhoods").select("id, name").eq("city_id", city.id).maybeSingle();
 check("a district can be founded on the cleared ground", reborn?.name === "First Quarter", reborn?.name ?? "none");
 await page.screenshot({ path: "scripts/shots/demolish-rebuilt.png" });
 

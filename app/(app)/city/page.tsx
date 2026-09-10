@@ -107,6 +107,7 @@ export default async function CityPage() {
         routeLinks={routeLinks}
         staleRoutes={staleRoutes}
         headlines={(activity ?? []).map((a) => ({ id: a.id, text: a.headline }))}
+        citySeed={Number(city.seed) || 0}
       />
     </div>
   );

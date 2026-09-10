@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { canPlace, type Footprint, type Terrain } from "@/lib/placement";
-import { SPRITE_FOR_TYPE } from "@/lib/sprites";
+import { SPRITE_FOR_TYPE, spriteFootprint, type SpriteVariant } from "@/lib/sprites";
 import type { Json } from "@/lib/database.types";
 
 /**
@@ -29,9 +29,6 @@ const createBuildingSchema = z.object({
   artifactType: z.enum(ARTIFACT_TYPES),
   tileX: z.number().int().min(0).max(511),
   tileY: z.number().int().min(0).max(511),
-  footprintW: z.number().int().min(1).max(4).default(1),
-  footprintH: z.number().int().min(1).max(4).default(1),
-  floors: z.number().int().min(1).max(3).default(1),
   spriteVariant: z.number().int().min(1).max(3).default(1),
 });
 
@@ -78,11 +75,17 @@ export async function createBuilding(input: unknown): Promise<ActionResult<{ id:
   const context = await placementContext(supabase, p.neighborhoodId);
   if (!context) return { ok: false, error: "That neighbourhood no longer exists." };
 
+  // The sprite recipe owns the shape. A lot is validated against the size the
+  // building will actually be drawn at, so nothing ever overhangs the tiles it
+  // was checked on and depthFor() sorts it against the right neighbours.
+  const spriteKey = SPRITE_FOR_TYPE[p.artifactType];
+  const shape = spriteFootprint(spriteKey, p.spriteVariant as SpriteVariant);
+
   const footprint: Footprint = {
     tile_x: p.tileX,
     tile_y: p.tileY,
-    footprint_w: p.footprintW,
-    footprint_h: p.footprintH,
+    footprint_w: shape.w,
+    footprint_h: shape.h,
   };
 
   const verdict = canPlace({
@@ -101,13 +104,13 @@ export async function createBuilding(input: unknown): Promise<ActionResult<{ id:
     neighborhood_id: p.neighborhoodId,
     title: p.title,
     artifact_type: p.artifactType,
-    sprite_key: SPRITE_FOR_TYPE[p.artifactType],
+    sprite_key: spriteKey,
     sprite_variant: p.spriteVariant,
     tile_x: p.tileX,
     tile_y: p.tileY,
-    footprint_w: p.footprintW,
-    footprint_h: p.footprintH,
-    floors: p.floors,
+    footprint_w: shape.w,
+    footprint_h: shape.h,
+    floors: shape.floors,
     position: context.occupied.length,
   });
 

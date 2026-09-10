@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../lib/database.types";
+import { smokeCity } from "./smoke-city";
 
 config({ path: ".env.local", quiet: true });
 const admin = createClient<Database>(
@@ -15,6 +16,10 @@ const admin = createClient<Database>(
 const cookieLine = readFileSync("/tmp/burg-cookie.txt", "utf-8").trim();
 const eq = cookieLine.indexOf("=");
 const cookie = { name: cookieLine.slice(0, eq), value: cookieLine.slice(eq + 1), domain: "localhost", path: "/" };
+
+// Every query below is scoped to this city: a real city on the same project
+// must not be counted into an assertion, let alone written to.
+const city = await smokeCity(admin);
 
 const results: string[] = [];
 const check = (n: string, ok: boolean, d = "") => {
@@ -33,7 +38,7 @@ page.on("pageerror", (e) => errors.push(String(e)));
 await page.goto("http://localhost:3000/city", { waitUntil: "networkidle" });
 await page.waitForTimeout(600);
 
-const before = (await admin.from("buildings").select("id", { count: "exact", head: true })).count ?? 0;
+const before = (await admin.from("buildings").select("id", { count: "exact", head: true }).eq("city_id", city.id)).count ?? 0;
 
 // --- entering build mode -------------------------------------------------
 await page.getByRole("button", { name: /^build$/i }).click();
@@ -62,8 +67,8 @@ await page.screenshot({ path: "scripts/shots/build-ghost.png" });
 
 // Place with the pointer on a lot we know is inside Harbor District.
 const { data: hood } = await admin
-  .from("neighborhoods").select("origin_x, origin_y, width, height").eq("slug", "harbor-district").single();
-const { data: existing } = await admin.from("buildings").select("tile_x, tile_y, footprint_w, footprint_h");
+  .from("neighborhoods").select("origin_x, origin_y, width, height").eq("city_id", city.id).eq("slug", "harbor-district").single();
+const { data: existing } = await admin.from("buildings").select("tile_x, tile_y, footprint_w, footprint_h").eq("city_id", city.id);
 
 // First free tile in the district, computed the same way the app would.
 let target: { x: number; y: number } | null = null;
@@ -100,12 +105,12 @@ await page.mouse.up();
 await page.waitForURL(/\/b\/[0-9a-f-]+/, { timeout: 15000 }).catch(() => {});
 await page.waitForTimeout(1500);
 
-const after = (await admin.from("buildings").select("id", { count: "exact", head: true })).count ?? 0;
+const after = (await admin.from("buildings").select("id", { count: "exact", head: true }).eq("city_id", city.id)).count ?? 0;
 check("placing creates a building", after === before + 1, `${before} -> ${after}`);
 check("placement opens the new interior", /\/b\//.test(page.url()), page.url());
 
 const { data: made } = await admin
-  .from("buildings").select("id, title, artifact_type, tile_x, tile_y")
+  .from("buildings").select("id, title, artifact_type, tile_x, tile_y").eq("city_id", city.id)
   .order("created_at", { ascending: false }).limit(1).single();
 check("the building has the chosen type", made?.artifact_type === "board", made?.artifact_type ?? "");
 check("the building has the typed name", made?.title === "Check Board", made?.title ?? "");
@@ -119,8 +124,8 @@ await page.screenshot({ path: "scripts/shots/build-done.png" });
 
 // --- the database refuses a duplicate lot --------------------------------
 const dup = await admin.from("buildings").insert({
-  city_id: (await admin.from("cities").select("id").limit(1).single()).data!.id,
-  neighborhood_id: (await admin.from("neighborhoods").select("id").eq("slug", "harbor-district").single()).data!.id,
+  city_id: city.id,
+  neighborhood_id: (await admin.from("neighborhoods").select("id").eq("city_id", city.id).eq("slug", "harbor-district").single()).data!.id,
   title: "Should fail",
   artifact_type: "doc",
   sprite_key: "library",
@@ -133,7 +138,7 @@ check("the database refuses a second building on that lot", !!dup.error, dup.err
 // --- district creation ---------------------------------------------------
 await page.goto("http://localhost:3000/city", { waitUntil: "networkidle" });
 await page.waitForTimeout(500);
-const hoodsBefore = (await admin.from("neighborhoods").select("id", { count: "exact", head: true })).count ?? 0;
+const hoodsBefore = (await admin.from("neighborhoods").select("id", { count: "exact", head: true }).eq("city_id", city.id)).count ?? 0;
 
 // Empty ground south-east of the seeded districts.
 const TARGET = { tx: 24, ty: 22 };
@@ -180,11 +185,11 @@ await page.mouse.down();
 await page.mouse.up();
 await page.waitForTimeout(2500);
 
-const hoodsAfter = (await admin.from("neighborhoods").select("id", { count: "exact", head: true })).count ?? 0;
+const hoodsAfter = (await admin.from("neighborhoods").select("id", { count: "exact", head: true }).eq("city_id", city.id)).count ?? 0;
 check("founding a district creates it", hoodsAfter === hoodsBefore + 1, `${hoodsBefore} -> ${hoodsAfter}`);
 
 const { data: quarter } = await admin
-  .from("neighborhoods").select("id, slug, origin_x, origin_y, width, height, biome").eq("name", "Test Quarter").maybeSingle();
+  .from("neighborhoods").select("id, slug, origin_x, origin_y, width, height, biome").eq("city_id", city.id).eq("name", "Test Quarter").maybeSingle();
 check("the district has the chosen size", quarter?.width === 5, `${quarter?.width}x${quarter?.height}`);
 
 const { count: tinted } = await admin

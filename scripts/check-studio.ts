@@ -4,6 +4,8 @@ import { readFileSync } from "node:fs";
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../lib/database.types";
+import { smokeCity } from "./smoke-city";
+import { spriteFootprint } from "../lib/sprites";
 
 config({ path: ".env.local", quiet: true });
 const admin = createClient<Database>(
@@ -23,36 +25,51 @@ const check = (n: string, ok: boolean, d = "") => {
   results.push(line);
 };
 
-// The seed has no Studio, so make one the way build mode would.
-const { data: city } = await admin.from("cities").select("id").limit(1).single();
+// The seed has no Studio, so make one the way build mode would -- in the
+// smoke-test city, never in whichever city happens to sort first.
+const city = await smokeCity(admin);
 const { data: hood } = await admin.from("neighborhoods").select("id, origin_x, origin_y, width, height")
-  .eq("slug", "old-town").single();
-const { data: taken } = await admin.from("buildings").select("tile_x, tile_y, footprint_w, footprint_h");
+  .eq("city_id", city.id).eq("slug", "old-town").single();
+const { data: taken } = await admin.from("buildings")
+  .select("tile_x, tile_y, footprint_w, footprint_h").eq("city_id", city.id);
+
+// Build mode takes the footprint from the sprite recipe, so the lot search
+// has to look for room for the whole thing, not for one free tile.
+const shape = spriteFootprint("studio", 1);
 
 let lot: { x: number; y: number } | null = null;
-for (let y = hood!.origin_y; y < hood!.origin_y + hood!.height && !lot; y++) {
-  for (let x = hood!.origin_x; x < hood!.origin_x + hood!.width && !lot; x++) {
+for (let y = hood!.origin_y; y + shape.h <= hood!.origin_y + hood!.height && !lot; y++) {
+  for (let x = hood!.origin_x; x + shape.w <= hood!.origin_x + hood!.width && !lot; x++) {
     const clash = (taken ?? []).some(
-      (b) => x >= b.tile_x && x < b.tile_x + b.footprint_w && y >= b.tile_y && y < b.tile_y + b.footprint_h,
+      (b) =>
+        x < b.tile_x + b.footprint_w &&
+        b.tile_x < x + shape.w &&
+        y < b.tile_y + b.footprint_h &&
+        b.tile_y < y + shape.h,
     );
     if (!clash) lot = { x, y };
   }
 }
+check("found a lot with room for a studio", !!lot, JSON.stringify(lot));
 
-await admin.from("buildings").delete().eq("title", "Sketchbook");
+await admin.from("buildings").delete().eq("city_id", city.id).eq("title", "Sketchbook");
 const studioId = crypto.randomUUID();
 const made = await admin.from("buildings").insert({
   id: studioId,
-  city_id: city!.id,
+  city_id: city.id,
   neighborhood_id: hood!.id,
   title: "Sketchbook",
   artifact_type: "canvas",
   sprite_key: "studio",
+  sprite_variant: 1,
   tile_x: lot!.x,
   tile_y: lot!.y,
+  footprint_w: shape.w,
+  footprint_h: shape.h,
+  floors: shape.floors,
 });
 check("a canvas building can be created", !made.error, made.error?.message ?? "");
-await admin.from("canvases").insert({ building_id: studioId, city_id: city!.id });
+await admin.from("canvases").insert({ building_id: studioId, city_id: city.id });
 
 const browser = await chromium.launch();
 const context = await browser.newContext({ viewport: { width: 1400, height: 950 } });

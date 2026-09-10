@@ -181,6 +181,15 @@ seeded data — promotion turns a note into a building, for one. It is
 destructive to the demo city and nothing else: the reseed and every suite are
 scoped to `seedtest@burg.local`.
 
+That scoping is load-bearing, not tidiness. The hosted project holds a real
+city alongside the smoke-test one, and an unscoped `admin.from(...)` reaches
+both: `.eq("slug", "harbor-district").single()` matches two rows and throws, a
+bare `count` totals someone else's buildings into an assertion, and
+`check-roads` used to mark **every** route on the project stale — including a
+real city's, which nothing then re-solves, because only an open map drains
+that queue. Suites resolve their city through `scripts/smoke-city.ts` and
+filter by the id it returns. Any new suite must do the same.
+
 Individual suites:
 
 ```bash
@@ -217,6 +226,27 @@ npx tsx scripts/shot.ts /city city-rm.png --reduced-motion
 
 Output lands in `scripts/shots/` (gitignored).
 
+### Sprites and footprints
+
+`lib/sprites.ts` is the whole art department: every building, terrain tile,
+road and prop is generated geometry, and no component names a sprite or writes
+a polygon. Re-arting Burg means editing that file and nothing else.
+
+A building's footprint is **not** independent of its sprite.
+`spriteFootprint(key, variant)` returns the shape a recipe is drawn for, and
+`createBuilding`, the seed and the placement check all read it. The lit
+(lower-right) face spans the H axis, so an elongated building wants its long
+side on H or its facade lands on the short end. If a stored footprint drifts
+from its recipe the sprite is squeezed onto the wrong face and `depthFor()`
+sorts it against the wrong neighbours — `scripts/dev-footprints.ts` finds and
+repairs that.
+
+Street furniture has no table behind it: `lib/props.ts` derives the scatter
+from the tile's coordinates and the city's seed, so it is stable across
+reloads without a row per lamp post. Nobody can place a lamp deliberately;
+when that is worth having, `propAt` becomes the fallback for a `prop` column
+on `tiles` rather than being replaced by it.
+
 ### What to check by hand
 
 The automated checks do not cover feel. Worth looking at yourself:
@@ -233,6 +263,9 @@ The automated checks do not cover feel. Worth looking at yourself:
   is dark where you are. To see the other end of the day without waiting,
   change your system clock, or read `lib/daylight.ts`, which is a pure function
   of the time you hand it.
+- **The sprites.** Windows, doors and shopfronts are all one token, so the
+  whole city lights at dusk. Chimney smoke is the only loop the sprites own
+  and it stops under reduced motion.
 - **Roads.** Open the map and give it a few seconds: any route the database has
   flagged stale is solved on load and paves itself in. Add a `[[link]]` in a
   document and come back to the map to watch a new road appear.
@@ -245,6 +278,8 @@ The automated checks do not cover feel. Worth looking at yourself:
 |---|---|
 | `scripts/seed.ts` | Seeds "Ideaburg". Idempotent; `--create` makes the user too. |
 | `scripts/dev-reset.ts` | Deletes one account's city so the seed can run clean, defaulting to `seedtest@burg.local`. **Destructive**; `--all` takes every city on the project, real ones included. |
+| `scripts/smoke-city.ts` | Not a script — the module every check suite imports to resolve which city it may touch. |
+| `scripts/dev-footprints.ts` | Reports buildings whose stored footprint has drifted from the shape their sprite recipe is drawn for; `--fix` writes the recipe's shape back, skipping any that would then overlap. |
 | `scripts/dev-session.ts` | Mints a browser session cookie for the check scripts. |
 | `scripts/dev-ids.ts` | Prints seeded building ids by artifact type. |
 | `scripts/shot.ts` | Screenshots a route as a signed-in user. |

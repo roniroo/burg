@@ -36,9 +36,12 @@ import {
   TERRAIN_FILL,
   TILE_DIAMOND,
   buildingSprite,
+  propSprite,
+  spriteFootprint,
   type SpriteKey,
   type SpriteVariant,
 } from "@/lib/sprites";
+import { propAt } from "@/lib/props";
 import { BUILDING_NOUN } from "@/lib/artifacts";
 import { Sprite } from "./sprite";
 import type { MapBuilding, MapNeighborhood, MapTile } from "./types";
@@ -54,6 +57,8 @@ type Props = {
   routeLinks: Record<string, RouteLink[]>;
   staleRoutes: number;
   headlines: Headline[];
+  /** Seeds the deterministic street-furniture scatter. */
+  citySeed: number;
 };
 
 type Camera = { x: number; y: number; zoom: Zoom };
@@ -79,6 +84,7 @@ export function CityMap({
   routeLinks,
   staleRoutes,
   headlines,
+  citySeed,
 }: Props) {
   const light = useDaylight();
   const router = useRouter();
@@ -240,7 +246,7 @@ export function CityMap({
    * promises a placement the action would refuse.
    */
   const verdictFor = useCallback(
-    (tile: { x: number; y: number }) => {
+    (tile: { x: number; y: number }, shape: { w: number; h: number }) => {
       const hood = neighborhoods.find((n) => isInRegion(tile.x, tile.y, n));
       if (!hood) return { ok: false as const, reason: "outside-region" as const, hood: null };
 
@@ -248,7 +254,7 @@ export function CityMap({
         (tileByKey.get(`${x},${y}`)?.terrain as Terrain | undefined) ?? "grass";
 
       const verdict = canPlace({
-        footprint: { tile_x: tile.x, tile_y: tile.y, footprint_w: 1, footprint_h: 1 },
+        footprint: { tile_x: tile.x, tile_y: tile.y, footprint_w: shape.w, footprint_h: shape.h },
         region: hood,
         occupied: buildings.map((b) => ({
           tile_x: b.tile_x,
@@ -265,9 +271,21 @@ export function CityMap({
     [neighborhoods, tileByKey, buildings, cityWidth, cityHeight],
   );
 
+  /**
+   * The shape the drafted building will be drawn at. The sprite recipe owns
+   * it, so the ghost, the lot check and the row the server writes all agree.
+   */
+  const draftShape = useMemo(
+    () =>
+      draft?.kind === "building"
+        ? spriteFootprint(SPRITE_FOR_TYPE[draft.artifactType], 1)
+        : { w: 1, h: 1, floors: 1 },
+    [draft],
+  );
+
   const ghostVerdict = useMemo(
-    () => (ghost && draft?.kind === "building" ? verdictFor(ghost) : null),
-    [ghost, draft, verdictFor],
+    () => (ghost && draft?.kind === "building" ? verdictFor(ghost, draftShape) : null),
+    [ghost, draft, draftShape, verdictFor],
   );
 
   /** A district may not run off the map or overlap another district. */
@@ -283,6 +301,13 @@ export function CityMap({
         n.origin_y < ghost.y + draft.height,
     );
   }, [ghost, draft, neighborhoods, cityWidth, cityHeight]);
+
+  /** Every tile a solved route runs over. */
+  const roadTiles = useMemo(() => {
+    const set = new Set<string>();
+    for (const route of routes) for (const t of route.path) set.add(`${t.x},${t.y}`);
+    return set;
+  }, [routes]);
 
   const handlePaved = useCallback(() => setPavingIds([]), []);
 
@@ -321,6 +346,29 @@ export function CityMap({
     const route = routes.find((r) => r.id === hoveredRoad);
     return route ? new Set([route.aBuildingId, route.bBuildingId]) : new Set<string>();
   }, [routes, hoveredRoad]);
+
+  /**
+   * Street furniture on the ground a district has claimed.
+   *
+   * Derived, not stored: `propAt` is a pure function of the tile and the
+   * city's seed, so the scatter survives a reload without a row per lamp
+   * post. A tile already carrying a building, a road or water is skipped, so
+   * building on a lot simply takes its prop with it.
+   */
+  const visibleProps = useMemo(() => {
+    const out: Array<{ x: number; y: number; key: NonNullable<ReturnType<typeof propAt>> }> = [];
+    for (const { x, y, tile, hood } of visibleTiles) {
+      if (!hood) continue;
+      if ((tile?.terrain ?? "grass") === "water") continue;
+      if (roadTiles.has(`${x},${y}`)) continue;
+      if (buildings.some((b) => x >= b.tile_x && x < b.tile_x + b.footprint_w && y >= b.tile_y && y < b.tile_y + b.footprint_h)) {
+        continue;
+      }
+      const key = propAt(x, y, citySeed);
+      if (key) out.push({ x, y, key });
+    }
+    return out;
+  }, [visibleTiles, roadTiles, buildings, citySeed]);
 
   const visibleBuildings = useMemo(
     () =>
@@ -531,7 +579,7 @@ export function CityMap({
     async (tile: { x: number; y: number }) => {
       if (!draft || draft.kind !== "building") return;
 
-      const verdict = verdictFor(tile);
+      const verdict = verdictFor(tile, draftShape);
       if (!verdict.ok) {
         setBuildHint(REJECTION_MESSAGE[verdict.reason]);
         return;
@@ -565,7 +613,7 @@ export function CityMap({
       setRaising(null);
       router.push(`/b/${result.data.id}`);
     },
-    [draft, verdictFor, reduceMotion, router],
+    [draft, draftShape, verdictFor, reduceMotion, router],
   );
 
   /** Found a district: place its top corner at the given tile. */
@@ -791,6 +839,32 @@ export function CityMap({
             it covers, so anything still standing on it reads above the mark. */}
         {condemnedRegion ? <CondemnedRegion region={condemnedRegion} range={range} /> : null}
 
+        {/* Street furniture. Sorted with the buildings rather than the ground,
+            because a tree in front of a house has to draw over it. */}
+        {visibleProps.map(({ x, y, key }) => {
+          const screen = tileToScreen(x, y);
+          const geometry = propSprite(key);
+          const hood = hoodAt(x, y);
+          return (
+            <div
+              key={`p-${x}-${y}`}
+              aria-hidden
+              data-biome={hood?.biome}
+              data-status={hood?.status}
+              className="pointer-events-none absolute"
+              style={{
+                left: snap(screen.x - geometry.originX),
+                top: snap(screen.y - geometry.originY),
+                width: geometry.width,
+                height: geometry.height,
+                zIndex: depthFor(x, y) + 1,
+              }}
+            >
+              <Sprite geometry={geometry} animate={!reduceMotion} />
+            </div>
+          );
+        })}
+
         {/* Buildings */}
         {visibleBuildings.map((b) => {
           const hood = hoodById.get(b.neighborhood_id) ?? null;
@@ -865,6 +939,7 @@ export function CityMap({
         {draft?.kind === "building" && ghost ? (
           <GhostLot
             tile={ghost}
+            shape={draftShape}
             valid={ghostVerdict?.ok ?? false}
             artifactType={draft.artifactType}
             biome={ghostVerdict?.hood?.biome}
@@ -994,41 +1069,62 @@ const SPRITE_FOR_TYPE_VALUES: Record<SpriteKey, true> = {
  *  lot itself pulsing green when it can be built on and red when it cannot. */
 function GhostLot({
   tile,
+  shape,
   valid,
   artifactType,
   biome,
 }: {
   tile: { x: number; y: number };
+  shape: { w: number; h: number; floors: number };
   valid: boolean;
   artifactType: MapBuilding["artifact_type"];
   biome: string | undefined;
 }) {
   const screen = tileToScreen(tile.x, tile.y);
-  const geometry = buildingSprite(SPRITE_FOR_TYPE[artifactType], 1, 1, 1, 1);
+  const geometry = buildingSprite(
+    SPRITE_FOR_TYPE[artifactType],
+    1,
+    shape.w,
+    shape.h,
+    shape.floors,
+    "ghost",
+  );
+
+  // Every tile the building would stand on, not just the one under the cursor.
+  const lot: Array<{ x: number; y: number }> = [];
+  for (let dy = 0; dy < shape.h; dy++) {
+    for (let dx = 0; dx < shape.w; dx++) lot.push({ x: tile.x + dx, y: tile.y + dy });
+  }
 
   return (
     <>
-      <div
-        aria-hidden
-        className="pointer-events-none absolute"
-        style={{
-          left: snap(screen.x - TILE_W / 2),
-          top: snap(screen.y),
-          width: TILE_W,
-          height: TILE_H,
-          zIndex: tile.x + tile.y + 900,
-        }}
-      >
-        <svg width={TILE_W} height={TILE_H} className="pixelated block" shapeRendering="crispEdges">
-          <polygon
-            points={TILE_DIAMOND}
-            fill={valid ? "var(--color-lime)" : "var(--color-brick)"}
-            fillOpacity={0.75}
-            stroke="var(--color-ink)"
-            strokeWidth={2}
-          />
-        </svg>
-      </div>
+      {lot.map((cell) => {
+        const at = tileToScreen(cell.x, cell.y);
+        return (
+          <div
+            key={`gl-${cell.x}-${cell.y}`}
+            aria-hidden
+            className="pointer-events-none absolute"
+            style={{
+              left: snap(at.x - TILE_W / 2),
+              top: snap(at.y),
+              width: TILE_W,
+              height: TILE_H,
+              zIndex: cell.x + cell.y + 900,
+            }}
+          >
+            <svg width={TILE_W} height={TILE_H} className="pixelated block" shapeRendering="crispEdges">
+              <polygon
+                points={TILE_DIAMOND}
+                fill={valid ? "var(--color-lime)" : "var(--color-brick)"}
+                fillOpacity={0.75}
+                stroke="var(--color-ink)"
+                strokeWidth={2}
+              />
+            </svg>
+          </div>
+        );
+      })}
 
       <div
         aria-hidden
@@ -1040,7 +1136,7 @@ function GhostLot({
           width: geometry.width,
           height: geometry.height,
           zIndex: tile.x + tile.y + 901,
-          opacity: valid ? 0.75 : 0.35,
+          opacity: valid ? 1 : 0.55,
         }}
       >
         <Sprite geometry={geometry} />

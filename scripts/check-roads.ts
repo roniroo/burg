@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../lib/database.types";
+import { smokeCity } from "./smoke-city";
 
 config({ path: ".env.local", quiet: true });
 const admin = createClient<Database>(
@@ -30,13 +31,19 @@ const page = await context.newPage();
 const errors: string[] = [];
 page.on("pageerror", (e) => errors.push(String(e)));
 
+// Every query below is scoped to this city. Unscoped, the determinism pass
+// below marks every route on the project stale -- including a real city's,
+// which nothing then re-solves, because only an open map drains that queue.
+const city = await smokeCity(admin);
+
 // Opening the map drains the stale queue.
 await page.goto("http://localhost:3000/city", { waitUntil: "networkidle" });
 await page.waitForTimeout(3500);
 
 const { data: routes } = await admin
   .from("road_routes")
-  .select("id, scope, tier, link_count, stale, path, a_gate_id, b_gate_id");
+  .select("id, scope, tier, link_count, stale, path, a_gate_id, b_gate_id")
+  .eq("city_id", city.id);
 
 check("every route was solved", (routes ?? []).every((r) => !r.stale), 
   `${(routes ?? []).filter((r) => r.stale).length} still stale`);
@@ -69,11 +76,11 @@ check("tier matches link count on every route", tierOk);
 
 // --- determinism ---------------------------------------------------------
 const before = JSON.stringify((routes ?? []).map((r) => r.path));
-await admin.from("road_routes").update({ stale: true }).neq("id", "00000000-0000-0000-0000-000000000000");
+await admin.from("road_routes").update({ stale: true }).eq("city_id", city.id);
 await page.reload({ waitUntil: "networkidle" });
 await page.waitForTimeout(3500);
-const { data: resolved } = await admin.from("road_routes").select("id, path").order("id");
-const { data: originalOrder } = await admin.from("road_routes").select("id").order("id");
+const { data: resolved } = await admin.from("road_routes").select("id, path").eq("city_id", city.id).order("id");
+const { data: originalOrder } = await admin.from("road_routes").select("id").eq("city_id", city.id).order("id");
 void originalOrder;
 const after = JSON.stringify((resolved ?? []).map((r) => r.path));
 check("re-solving produces identical paths", before.length > 0 && after.length > 0, 
@@ -120,14 +127,14 @@ check("Escape closes the panel", (await panel.count()) === 0);
 
 // --- the paving ceremony -------------------------------------------------
 // Creating a link should leave a stale route that the map then paves in.
-const { data: pair } = await admin.from("buildings").select("id, title, city_id").order("title").limit(2);
+const { data: pair } = await admin.from("buildings").select("id, title, city_id").eq("city_id", city.id).order("title").limit(2);
 const [first, second] = pair ?? [];
 
 if (first && second) {
   await admin.from("building_links").delete()
     .eq("source_building_id", first.id).eq("target_building_id", second.id).eq("link_type", "manual");
 
-  const routesBefore = (await admin.from("road_routes").select("id", { count: "exact", head: true })).count ?? 0;
+  const routesBefore = (await admin.from("road_routes").select("id", { count: "exact", head: true }).eq("city_id", city.id)).count ?? 0;
 
   await admin.from("building_links").insert({
     city_id: first.city_id,
@@ -144,7 +151,7 @@ if (first && second) {
   await page.goto("http://localhost:3000/city", { waitUntil: "networkidle" });
   await page.waitForTimeout(4000);
 
-  const routesAfter = (await admin.from("road_routes").select("id, stale", { count: "exact" }));
+  const routesAfter = (await admin.from("road_routes").select("id, stale", { count: "exact" }).eq("city_id", city.id));
   check("the map solves the new route", (routesAfter.data ?? []).every((r) => !r.stale),
     `${(routesAfter.data ?? []).filter((r) => r.stale).length} stale`);
   check("a new route row exists", (routesAfter.count ?? 0) >= routesBefore, `${routesBefore} -> ${routesAfter.count}`);

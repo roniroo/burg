@@ -138,6 +138,28 @@
     --face-ground-lit: var(--biome-ground);
     --face-ground-shade: color-mix(in srgb, var(--biome-ground) 80%, var(--color-ink));
     --face-accent: var(--biome-accent);
+
+    /* The third step in each ramp: eaves, sills, returns, roof decks -- the
+       step that makes a silhouette read as built rather than extruded. */
+    --face-wall-mid: color-mix(in srgb, var(--biome-wall) 86%, var(--color-ink));
+    --face-roof-mid: color-mix(in srgb, var(--biome-roof) 86%, var(--color-ink));
+    --face-ground-mid: color-mix(in srgb, var(--biome-ground) 90%, var(--color-ink));
+
+    /* Materials, so a sprite never reaches past its biome for a raw --color-*. */
+    --face-trim: color-mix(in srgb, var(--biome-wall) 52%, var(--color-ink));
+    --face-glass: var(--color-sky);
+    --face-glass-deep: color-mix(in srgb, var(--color-sky) 62%, var(--color-deep));
+    --face-glass-bar: color-mix(in srgb, var(--color-sky) 72%, var(--color-ink));
+    --face-metal: var(--color-ash);
+    --face-metal-dark: color-mix(in srgb, var(--color-ash) 58%, var(--color-ink));
+    --face-timber: var(--color-dust);
+    --face-timber-dark: color-mix(in srgb, var(--color-dust) 62%, var(--color-ink));
+    --face-leaf: var(--color-grass);
+    --face-leaf-dark: var(--color-moss);
+    --face-bloom: var(--color-rose);
+    --face-shadow: color-mix(in srgb, var(--biome-ground) 66%, var(--color-ink));
+    --sign-plate: var(--color-paper);
+    --sign-ink: var(--color-slate);
   }
 
   /* Archived neighbourhoods read as boarded up rather than vanishing. */
@@ -196,6 +218,25 @@
   .pixelated {
     image-rendering: pixelated;
     -webkit-user-drag: none;
+  }
+
+  /* The one loop the sprites own: chimney puffs and water shimmer. Stepped,
+     so it stays sprite-like, and stopped entirely under reduced motion. */
+  @keyframes sprite-puff {
+    0% { opacity: 0; transform: translateY(4px); }
+    30% { opacity: 1; }
+    100% { opacity: 0; transform: translateY(-10px); }
+  }
+
+  .sprite-puff {
+    animation: sprite-puff 2.6s steps(4, end) infinite;
+    transform-box: fill-box;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sprite-puff {
+      animation: none;
+    }
   }
 
   /* The hard 2px offset shadow that stands in for elevation everywhere. */
@@ -381,6 +422,11 @@
 
   [data-lamps="on"] {
     --face-accent: var(--color-gold);
+    --face-glass: var(--color-gold);
+    --face-glass-deep: color-mix(in srgb, var(--color-gold) 60%, var(--color-clay));
+    --face-glass-bar: color-mix(in srgb, var(--color-clay) 70%, var(--color-ink));
+    --sign-plate: var(--color-gold);
+    --sign-ink: color-mix(in srgb, var(--color-gold) 60%, var(--color-clay));
   }
 
   /* Night flattens the contrast between lit and shaded faces, the way real
@@ -392,6 +438,16 @@
     --face-roof-shade: color-mix(in srgb, var(--biome-roof) 35%, var(--color-deep));
     --face-ground-lit: color-mix(in srgb, var(--biome-ground) 55%, var(--color-deep));
     --face-ground-shade: color-mix(in srgb, var(--biome-ground) 40%, var(--color-deep));
+    /* The mid steps and the materials need the same flattening, or they read
+       as daylight after dark. */
+    --face-wall-mid: color-mix(in srgb, var(--biome-wall) 45%, var(--color-deep));
+    --face-roof-mid: color-mix(in srgb, var(--biome-roof) 45%, var(--color-deep));
+    --face-ground-mid: color-mix(in srgb, var(--biome-ground) 45%, var(--color-deep));
+    --face-trim: color-mix(in srgb, var(--biome-wall) 30%, var(--color-deep));
+    --face-metal: color-mix(in srgb, var(--color-ash) 55%, var(--color-deep));
+    --face-timber: color-mix(in srgb, var(--color-dust) 55%, var(--color-deep));
+    --face-leaf: color-mix(in srgb, var(--color-grass) 50%, var(--color-deep));
+    --face-shadow: color-mix(in srgb, var(--biome-ground) 62%, var(--color-void));
   }
 
   [data-phase="dusk"],

@@ -44,7 +44,8 @@ npm run seed -- you@example.com --create
 | `lib/table/model.ts` | Data-table cell coercion, filtering, sorting, grouping. |
 | `lib/canvas/model.ts` | Whiteboard scene model and its tolerant parser. |
 | `lib/daylight.ts` | The day/night cycle as a pure function of the clock. |
-| `lib/sprites.ts` | The one typed sprite registry. No component names a sprite. |
+| `lib/sprites.ts` | The one typed sprite registry. No component names a sprite. It also owns each building's footprint — see `spriteFootprint`. |
+| `lib/props.ts` | Street furniture, scattered as a pure function of the tile rather than stored. |
 | `supabase/migrations/` | Schema, RLS, triggers, full-text search. |
 | `scripts/check-*.ts` | Browser check suites (see DEV.md). |
 
