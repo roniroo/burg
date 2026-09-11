@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getCurrentCity } from "@/lib/queries";
 import { CommandPalette } from "@/components/command-palette";
 import { signOut } from "@/lib/actions/auth";
+import { SupportLink } from "@/components/support-link";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const city = await getCurrentCity();
@@ -29,6 +30,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             Directory
           </Link>
           <span className="hidden font-pixel text-[10px] uppercase text-stone sm:inline">⌘K</span>
+          <SupportLink />
           <form action={signOut}>
             <button
               type="submit"
