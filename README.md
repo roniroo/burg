@@ -2,6 +2,8 @@
 
 A wiki-and-database workspace wearing an isometric pixel city.
 
+**Live at [burg-30n7.onrender.com](https://burg-30n7.onrender.com)** — invite-only.
+
 The costume is the information architecture, not decoration. A neighbourhood is
 a project, a building is an artifact, and the sprite *is* the type — a library
 is a document, a warehouse is a table. Links between artifacts are drawn as
@@ -64,19 +66,33 @@ cannot read is a toy.
 Everything that loops stops under `prefers-reduced-motion` and when the tab is
 hidden.
 
-## Deploying
+## Where it runs
 
-Live at **https://burg-30n7.onrender.com**. Invite-only: public signup is off,
-so accounts are made with `npm run seed -- <email> --create`, which goes through
-the admin API.
+Two hosted pieces and nothing else:
 
-`render.yaml` describes the service: one Node web service on Render, auto-deployed
-from `main`. Set `NEXT_PUBLIC_SUPABASE_URL` and
-`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` in the dashboard — they are baked into the
-client bundle at build time, so they must be present during the build, not only
-at runtime.
+| | |
+|---|---|
+| **App** | [burg-30n7.onrender.com](https://burg-30n7.onrender.com) — Render web service `burg` (`srv-dahka42d0e5s73foab9g`), Node, Oregon, starter plan |
+| **Data** | Supabase project `ybquniffzetaylkrkadz` — Postgres, Auth, Storage, RLS |
+| **Source** | `github.com/roniroo/burg`, branch `main` |
 
-Then add the deployed origin to Supabase under **Authentication → URL
-Configuration**, as both the Site URL and a redirect URL. Nothing else pins the
-origin — the app derives it from the incoming request — so that allow list is
-the one place a deploy can get auth wrong.
+Pushing to `main` deploys: Render watches the branch and runs
+`npm ci && npm run build`, then `npm run start`, with `/sign-in` as the health
+check. There is no CI in front of it — `npm run check` is a thing you run, not
+something that gates the push.
+
+**A deploy does not touch the database.** The build only builds the Next app, so
+a new migration in `supabase/migrations/` ships its code and not its schema.
+Apply migrations yourself before or alongside the push — see *Database changes*
+in [DEV.md](DEV.md).
+
+Invite-only: public signup is off, so accounts are made with
+`npm run seed -- <email> --create`, which goes through the admin API.
+
+Setting it up again from scratch would need `NEXT_PUBLIC_SUPABASE_URL` and
+`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` in the Render dashboard — they are baked
+into the client bundle at build time, so they must be present during the build,
+not only at runtime — and the deployed origin added to Supabase under
+**Authentication → URL Configuration** as both the Site URL and a redirect URL.
+Nothing else pins the origin; the app derives it from the incoming request, so
+that allow list is the one place a deploy can get auth wrong.

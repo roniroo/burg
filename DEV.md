@@ -297,6 +297,60 @@ All of them read `.env.local` and need `SUPABASE_SERVICE_ROLE_KEY`.
 
 ---
 
+## Production
+
+Burg is live at **https://burg-30n7.onrender.com**.
+
+| | |
+|---|---|
+| Service | Render web service `burg`, id `srv-dahka42d0e5s73foab9g` |
+| Dashboard | https://dashboard.render.com/web/srv-dahka42d0e5s73foab9g |
+| Workspace | "Get A Head" (`tea-d8u80gtaeets738mt85g`) |
+| Runtime | Node 22, Oregon, `starter` plan |
+| Build / start | `npm ci && npm run build` → `npm run start`, health check `/sign-in` |
+| Source | `github.com/roniroo/burg`, branch `main`, auto-deploy on |
+| Data | Supabase `ybquniffzetaylkrkadz` — the same project local dev talks to |
+
+Render assigned the `-30n7` suffix; the host is **not** `burg.onrender.com`.
+
+### Deploying
+
+Push to `main`. That is the whole procedure — Render builds and swaps in the new
+version, usually in about two minutes. Nothing gates the push: there is no CI,
+so `npm run check` is a thing you choose to run first.
+
+Watch it, or roll back, from the dashboard above, or from the CLI:
+
+```bash
+# The CLI refreshes an expired token on first use; no `render login` needed.
+render deploys list srv-dahka42d0e5s73foab9g --output json --confirm
+render logs --resources srv-dahka42d0e5s73foab9g --limit 50 --confirm
+render logs --resources srv-dahka42d0e5s73foab9g --tail --confirm   # follow
+```
+
+A rollback is redeploying an earlier commit from the dashboard's Deploys tab.
+
+### A deploy does not touch the database
+
+The build only builds the Next app. A new file in `supabase/migrations/` ships
+its **code** and not its **schema**, and the mismatch shows up as a runtime
+error against a table or constraint that is not there yet. Apply the migration
+first — see *Database changes* below — then push.
+
+This has already bitten once: the sprite work needed `floors` to allow four
+storeys, and the seed failed outright until the constraint was widened on the
+hosted project by hand.
+
+### Production is the same database as local dev
+
+`.env.local` points at `ybquniffzetaylkrkadz`, so unless you are running the
+Docker stack, **your dev server is writing to the same Postgres the live site
+uses**. That is why every check suite is scoped to `seedtest@burg.local` — see
+the note under *Browser checks*. Nothing stops a stray script from reaching the
+real city except that scoping.
+
+---
+
 ## Supabase project settings
 
 `supabase/config.toml` is **not** the source of truth for the hosted project —
@@ -332,8 +386,28 @@ npm run db:reset                      # replay everything locally
 npm run types:gen                     # regenerate lib/database.types.ts
 ```
 
-To apply to the hosted project: `supabase link --project-ref ybquniffzetaylkrkadz`
-then `supabase db push`.
+To apply to the hosted project — remember a deploy will not do this for you:
+
+```bash
+TOKEN=$(security find-generic-password -s "Supabase CLI" -w)
+curl -s -X POST -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "$(python3 -c 'import json,sys;print(json.dumps({"query":open(sys.argv[1]).read()}))' \
+        supabase/migrations/<file>.sql)" \
+  https://api.supabase.com/v1/projects/ybquniffzetaylkrkadz/database/query
+```
+
+That is one statement batch against the live database, and it is how
+`20260910153000_taller_buildings.sql` was applied. It returns `[]` on success;
+re-read the affected object afterwards to confirm.
+
+`supabase link --project-ref ybquniffzetaylkrkadz && supabase db push` is the
+supported route and does the same job, but the project was created before it
+was ever linked, so its migration history table does not know about the
+migrations already applied — a push would try to replay them and fail on
+objects that exist. Link and repair the history first if you want to use it.
+Either way, write the migration file too: it is the record of the schema, even
+when it was not the thing that ran.
 
 **Never edit `lib/database.types.ts` by hand** — it is generated.
 
