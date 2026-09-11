@@ -66,7 +66,15 @@ hidden.
 
 ## Deploying
 
-`render.yaml` describes the service. Set the four environment variables in the
-Render dashboard, and add the deployed origin to Supabase under
-**Authentication → URL Configuration → Redirect URLs**, or magic links will
-bounce.
+Live at **https://burg-30n7.onrender.com**.
+
+`render.yaml` describes the service: one Node web service on Render, auto-deployed
+from `main`. Set `NEXT_PUBLIC_SUPABASE_URL` and
+`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` in the dashboard — they are baked into the
+client bundle at build time, so they must be present during the build, not only
+at runtime.
+
+Then add the deployed origin to Supabase under **Authentication → URL
+Configuration**, as both the Site URL and a redirect URL. Nothing else pins the
+origin — the app derives it from the incoming request — so that allow list is
+the one place a deploy can get auth wrong.

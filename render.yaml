@@ -25,13 +25,21 @@ services:
         sync: false
       - key: NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
         sync: false
-      # The absolute origin auth redirects are built from. Must match the
-      # deployed URL exactly, and must also be listed in Supabase under
-      # Authentication → URL Configuration → Redirect URLs.
-      - key: NEXT_PUBLIC_SITE_URL
-        sync: false
-      # Server-only. Not needed at runtime by the app itself -- first sign-in
-      # seeding runs as the signed-in user through RLS -- but set it if you
-      # want to run the CLI seeder against production.
-      - key: SUPABASE_SERVICE_ROLE_KEY
-        sync: false
+# Deliberately NOT declared here:
+#
+#   NEXT_PUBLIC_SITE_URL -- nothing reads it. The callback route builds its
+#   redirects from `request.nextUrl.origin` and the sign-in form from
+#   `window.location.origin`, so the deployed origin is whatever the request
+#   actually arrived on. An earlier version of this file claimed redirects were
+#   "built from" the variable, which is the sort of note that gets a wrong value
+#   baked into a build before anyone checks. What DOES have to match the
+#   deployed origin is Supabase's redirect allow list -- see below.
+#
+#   SUPABASE_SERVICE_ROLE_KEY -- the app never needs it at runtime, because
+#   first-sign-in seeding runs as the signed-in user through RLS. It bypasses
+#   RLS entirely, so a public web service is the wrong place to keep it. Only
+#   the CLI seeder wants it, and that runs from a laptop.
+
+# After first deploy, add the service's origin to Supabase:
+#   Authentication → URL Configuration → Site URL + Redirect URLs
+# or via the Management API. Without it every sign-in redirect bounces.
