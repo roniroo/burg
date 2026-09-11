@@ -188,6 +188,15 @@ seeded data — promotion turns a note into a building, for one. It is
 destructive to the demo city and nothing else: the reseed and every suite are
 scoped to `seedtest@burg.local`.
 
+**The cookie is re-minted mid-run, and it has to be.** Changing a password
+revokes every refresh token for that user, and `check-legal` deliberately
+changes the smoke user's password to exercise the reset flow — then changes it
+back, revoking them a second time. Without a re-mint, every cookie-driven suite
+after it drives a **signed-out** browser: the pages 307 to `/sign-in`, so the
+assertions report "0 rows" or an empty selector rather than anything that looks
+like an auth problem, and the suites that open with a `page.fill` throw and
+print nothing at all. If a run goes quiet after *legal*, this is why.
+
 That scoping is load-bearing, not tidiness. The hosted project holds a real
 city alongside the smoke-test one, and an unscoped `admin.from(...)` reaches
 both: `.eq("slug", "harbor-district").single()` matches two rows and throws, a
@@ -263,9 +272,9 @@ changed nothing. Assert on the row's state afterwards, never on whether the
 client saw an error.
 
 Invitations are addressed to an **email**, not a user id, because the app
-cannot look a user up by address — that needs the service role, which
-deliberately does not exist at runtime — and because the person may have no
-account yet. `claimInvites()` runs from `ensureCity()` on every sign-in and
+cannot look a user up by address — that needs the service role, which the
+request-scoped client never has — and because the person may have no account
+yet. `claimInvites()` runs from `ensureCity()` on every sign-in and
 turns any invite for that address into membership. Since signup is closed,
 someone invited still needs an account made for them with
 `npm run seed -- <email> --create`.
