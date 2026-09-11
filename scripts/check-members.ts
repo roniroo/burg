@@ -126,8 +126,28 @@ const { error: inviteError } = await guestDb
 check("a viewer cannot invite anyone", !!inviteError, inviteError ? "refused" : "INVITED");
 
 // --- the map and directory hide what a viewer cannot do -------------------
+// The guest now has two cities: the one they were invited to, and their own,
+// which `ensureCity` seeds on first sign-in. `getCurrentCity` prefers a city
+// you own, so they land in theirs and have to switch before any of the
+// viewer-only assertions below mean anything.
+//
+// Worth knowing why this appeared: until `20260911160000_found_a_city.sql` the
+// guest's own seed failed silently — RLS refused the founding `city_members`
+// insert — so they were left with only the shared city and landed on it by
+// default. These checks were passing because of that bug, not in spite of it.
 await guestPage.goto("http://localhost:3000/city", { waitUntil: "networkidle" });
 await guestPage.waitForTimeout(1200);
+
+check("a guest gets their own city too", (await guestPage.locator("#city-switcher").count()) === 1,
+  "the switcher only renders with more than one city to switch between");
+
+await guestPage.selectOption("#city-switcher", city.id);
+await guestPage.waitForTimeout(2500);
+await guestPage.goto("http://localhost:3000/city", { waitUntil: "networkidle" });
+await guestPage.waitForTimeout(1200);
+check("switching lands them in the shared city",
+  (await guestPage.locator("#city-switcher").inputValue()) === city.id);
+
 check("a viewer is offered no Build button",
   (await guestPage.getByRole("button", { name: /^build$/i }).count()) === 0);
 check("a viewer is offered no Demolish button",
