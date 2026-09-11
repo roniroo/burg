@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentCity } from "@/lib/queries";
+import { getCityRole, getCurrentCity } from "@/lib/queries";
 import { CityMap } from "@/components/map/city-map";
 import type { MapRoute } from "@/components/map/road-layer";
 import type { RouteLink } from "@/components/map/connections-panel";
@@ -22,6 +22,8 @@ export default async function CityPage() {
       </p>
     );
   }
+
+  const role = await getCityRole(city.id);
 
   const supabase = await createClient();
   const [{ data: neighborhoods }, { data: buildings }, { data: tiles }, { data: routes }, { data: links }] =
@@ -108,6 +110,7 @@ export default async function CityPage() {
         staleRoutes={staleRoutes}
         headlines={(activity ?? []).map((a) => ({ id: a.id, text: a.headline }))}
         citySeed={Number(city.seed) || 0}
+        canEdit={role === "owner" || role === "editor"}
       />
     </div>
   );

@@ -59,6 +59,8 @@ type Props = {
   headlines: Headline[];
   /** Seeds the deterministic street-furniture scatter. */
   citySeed: number;
+  /** Viewers read the city; they do not build in it. */
+  canEdit: boolean;
 };
 
 type Camera = { x: number; y: number; zoom: Zoom };
@@ -85,6 +87,7 @@ export function CityMap({
   staleRoutes,
   headlines,
   citySeed,
+  canEdit,
 }: Props) {
   const light = useDaylight();
   const router = useRouter();
@@ -527,6 +530,8 @@ export function CityMap({
   }
 
   function onKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    // A viewer's arrow keys and Enter still move and open; nothing else here
+    // can start a change, because neither mode can be entered.
     const axis = SCREEN_AXES[event.key];
     if (axis) {
       event.preventDefault();
@@ -1004,7 +1009,7 @@ export function CityMap({
         </div>
       ) : null}
 
-      {!draft && !demolishing ? (
+      {canEdit && !draft && !demolishing ? (
         <div data-map-chrome className="absolute left-3 top-3 z-10 flex gap-2">
           <button
             type="button"

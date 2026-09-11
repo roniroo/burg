@@ -2,12 +2,15 @@ import Link from "next/link";
 import {
   BUILDING_GLYPH,
   BUILDING_NOUN,
+  getCityPeople,
+  getCityRole,
   getCityTree,
   getConnections,
   getCurrentCity,
 } from "@/lib/queries";
 import { DemolishBuilding, DissolveDistrict } from "@/components/city/demolish-button";
 import { StartFresh } from "@/components/city/start-fresh";
+import { People } from "@/components/city/people";
 
 export const metadata = { title: "Directory — Burg" };
 
@@ -22,8 +25,17 @@ export default async function DirectoryPage() {
     return <p className="p-8 font-body text-sm text-stone">No city yet.</p>;
   }
 
-  const [tree, connections] = await Promise.all([getCityTree(city.id), getConnections(city.id)]);
+  const [tree, connections, role, { people, invites }] = await Promise.all([
+    getCityTree(city.id),
+    getConnections(city.id),
+    getCityRole(city.id),
+    getCityPeople(city.id),
+  ]);
   if (!tree) return null;
+
+  // A viewer sees everything and changes nothing, so the controls that would
+  // only fail at the database are not rendered at all.
+  const canEdit = role === "owner" || role === "editor";
 
   const crossings = connections.filter((c) => c.crossesNeighborhoods).length;
   const buildingCount = tree.neighborhoods.reduce((n, hood) => n + hood.buildings.length, 0);
@@ -50,11 +62,13 @@ export default async function DirectoryPage() {
                     {n.biome} · {n.status}
                   </span>
                 </h3>
-                <DissolveDistrict
-                  neighborhoodId={n.id}
-                  name={n.name}
-                  buildingCount={n.buildings.length}
-                />
+                {canEdit ? (
+                  <DissolveDistrict
+                    neighborhoodId={n.id}
+                    name={n.name}
+                    buildingCount={n.buildings.length}
+                  />
+                ) : null}
               </div>
               {n.buildings.length === 0 ? (
                 <p className="pl-4 font-body text-sm text-stone">No buildings yet.</p>
@@ -71,9 +85,11 @@ export default async function DirectoryPage() {
                       <span className="font-pixel text-[10px] uppercase text-stone">
                         tile {b.tile_x},{b.tile_y}
                       </span>
-                      <span className="ml-auto">
-                        <DemolishBuilding buildingId={b.id} title={b.title} />
-                      </span>
+                      {canEdit ? (
+                        <span className="ml-auto">
+                          <DemolishBuilding buildingId={b.id} title={b.title} />
+                        </span>
+                      ) : null}
                     </li>
                   ))}
                 </ul>
@@ -144,6 +160,15 @@ export default async function DirectoryPage() {
         </div>
       </section>
 
+      <People
+        cityId={city.id}
+        cityName={tree.city.name}
+        role={role ?? "viewer"}
+        people={people}
+        invites={invites}
+      />
+
+      {role === "owner" ? (
       <section aria-labelledby="start-fresh" className="mt-10 mb-6">
         <h2 id="start-fresh" className="font-display text-xl text-brick">
           Start fresh
@@ -159,6 +184,7 @@ export default async function DirectoryPage() {
           neighborhoodCount={tree.neighborhoods.length}
         />
       </section>
+      ) : null}
     </div>
   );
 }

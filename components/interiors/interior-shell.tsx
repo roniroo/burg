@@ -17,6 +17,7 @@ export function InteriorShell({
   toolbar,
   children,
   wide = false,
+  canEdit = true,
 }: {
   buildingId: string;
   title: string;
@@ -25,6 +26,8 @@ export function InteriorShell({
   toolbar?: React.ReactNode;
   children: React.ReactNode;
   wide?: boolean;
+  /** Viewers read an interior; they do not demolish it. */
+  canEdit?: boolean;
 }) {
   return (
     <div
@@ -55,7 +58,9 @@ export function InteriorShell({
           {/* Demolition lives up here with the breadcrumb rather than at the
               foot of the page: it is chrome about the building, not part of
               whatever is being edited inside it. */}
-          <DemolishBuilding buildingId={buildingId} title={title} redirectTo="/city" />
+          {canEdit ? (
+            <DemolishBuilding buildingId={buildingId} title={title} redirectTo="/city" />
+          ) : null}
         </div>
       </div>
 

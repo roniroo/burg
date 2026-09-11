@@ -55,6 +55,59 @@ Those `lib/` modules are pure — no React, no DOM, no database — which is why
 they carry the unit tests. Components import them; components never re-derive
 the maths.
 
+## Sharing
+
+A city can be shared. `owner` manages people and can delete the city, `editor`
+builds and demolishes, `viewer` reads. The roles are enforced by row-level
+security, not by hiding buttons, and the check suite proves it against the
+database rather than against the UI.
+
+Invitations go to an email address and are claimed on that person's next
+sign-in, so inviting someone who does not have an account yet works — though
+signup is closed, so an account has to be made for them.
+
+## On charging for it
+
+Notes from costing this out, kept here so the reasoning is not lost.
+
+**Size is the wrong thing to meter.** The fully seeded demo city — 3 districts,
+8 buildings, 12 table rows, 11 notes — is **3.4 KB** of content. Supabase's free
+tier is 500 MB, so that is room for roughly 150,000 cities before storage costs
+anything. Hosting is about $7/month for Render plus $25 when Supabase Pro
+becomes necessary, so **four subscribers cover the infrastructure at any
+plausible data volume**. A size cap would not be recovering costs; it would be
+manufacturing scarcity in a product whose whole appeal is a city that looks
+inhabited. Capping someone at ten buildings makes the map look like a failed
+settlement.
+
+**The lever worth pulling is collaboration**, which is why it is built. People
+pay for "my collaborator can see this" far more reliably than for "more rows in
+my own notes".
+
+If a size tier is wanted anyway, the shape that does least damage:
+
+| | Free | Paid |
+|---|---|---|
+| Cities | 1 | unlimited |
+| Districts | 5 | unlimited |
+| Buildings | 50 | unlimited |
+| Anything *inside* a building | uncapped | uncapped |
+| Collaborators | — | ✓ |
+
+Fifty because the seed alone is eight, a district holds about 48 lots, and 50
+is where someone has stopped trying Burg and started depending on it. Below
+about 25 you are taxing evaluation.
+
+**Never cap what is inside a building.** Table rows, note length and canvas
+nodes accrue invisibly while someone is mid-thought, and hitting that wall
+feels like a bug rather than a pricing decision. Cap the deliberate acts:
+founding a district, raising a building.
+
+Two caveats. One city per user is currently assumed in places, so "unlimited
+cities" is real work rather than a flag. And enforcement belongs in
+`createBuilding` and `createNeighborhood`, which already validate centrally —
+a plan check goes in beside the placement check.
+
 ## Design rules
 
 8px grid · zero border-radius · zero blur · zero gradients except the sky ·

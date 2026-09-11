@@ -1,11 +1,12 @@
 import Link from "next/link";
-import { getCurrentCity } from "@/lib/queries";
+import { getCurrentCity, getReachableCities } from "@/lib/queries";
 import { CommandPalette } from "@/components/command-palette";
 import { signOut } from "@/lib/actions/auth";
 import { SupportLink } from "@/components/support-link";
+import { CitySwitcher } from "@/components/city/city-switcher";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const city = await getCurrentCity();
+  const [city, reachable] = await Promise.all([getCurrentCity(), getReachableCities()]);
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
@@ -14,7 +15,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <Link href="/city" className="font-display text-xl text-ink">
             Burg
           </Link>
-          {city ? <span className="font-pixel text-xs uppercase text-stone">{city.name}</span> : null}
+          {city && reachable.length > 1 ? (
+            <CitySwitcher
+              cities={reachable.map((c) => ({ id: c.id, name: c.name, role: c.role }))}
+              activeId={city.id}
+            />
+          ) : city ? (
+            <span className="font-pixel text-xs uppercase text-stone">{city.name}</span>
+          ) : null}
         </div>
         <nav aria-label="Primary" className="flex items-center gap-2">
           <Link

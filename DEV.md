@@ -214,6 +214,7 @@ npx tsx scripts/check-studio.ts                 # whiteboard tools and saving
 npx tsx scripts/check-a11y.ts                   # axe, normal + reduced motion
 npx tsx scripts/check-demolish.ts               # demolish, dissolve, start fresh
 npx tsx scripts/check-legal.ts                  # terms, privacy, password reset
+npx tsx scripts/check-members.ts                # invitations, roles, what each may do
 ```
 
 `check-demolish.ts` runs last in `npm run check` and leaves the demo city
@@ -234,6 +235,40 @@ npx tsx scripts/shot.ts /city city-rm.png --reduced-motion
 ```
 
 Output lands in `scripts/shots/` (gitignored).
+
+### Sharing a city
+
+Three roles, and they are enforced by RLS rather than by the UI:
+
+| | reads | builds and demolishes | manages people | deletes the city |
+|---|---|---|---|---|
+| `owner` | ✓ | ✓ | ✓ | ✓ |
+| `editor` | ✓ | ✓ | | |
+| `viewer` | ✓ | | | |
+
+`city_members` and the `city_role` enum existed from the foundation, but until
+`20260911120000_collaboration.sql` **nothing enforced the role** — every policy
+asked `burg.is_city_member`, so a viewer could demolish a district. Writes now
+go through `burg.can_edit_city` and people-management through
+`burg.is_city_owner`.
+
+Hiding a button is a courtesy; the policy is the boundary. `check-members.ts`
+asserts against the database with a really-signed-in client, not against the
+UI, because a test that only checked the button would pass just as happily if
+the policies were missing.
+
+**RLS does not raise on a refused UPDATE or DELETE.** The row is filtered out
+of the statement's view, so it matches nothing and reports success having
+changed nothing. Assert on the row's state afterwards, never on whether the
+client saw an error.
+
+Invitations are addressed to an **email**, not a user id, because the app
+cannot look a user up by address — that needs the service role, which
+deliberately does not exist at runtime — and because the person may have no
+account yet. `claimInvites()` runs from `ensureCity()` on every sign-in and
+turns any invite for that address into membership. Since signup is closed,
+someone invited still needs an account made for them with
+`npm run seed -- <email> --create`.
 
 ### The public pages
 

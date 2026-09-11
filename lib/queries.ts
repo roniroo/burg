@@ -1,5 +1,9 @@
+import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/database.types";
+
+/** Which of the cities you can reach you are currently looking at. */
+export const ACTIVE_CITY_COOKIE = "burg-city";
 
 export type City = Database["public"]["Tables"]["cities"]["Row"];
 export type Neighborhood = Database["public"]["Tables"]["neighborhoods"]["Row"];
@@ -8,11 +12,120 @@ export type ArtifactType = Database["public"]["Enums"]["artifact_type"];
 export type Biome = Database["public"]["Enums"]["biome"];
 export type NeighborhoodStatus = Database["public"]["Enums"]["neighborhood_status"];
 
-/** The signed-in user's city. v1 is one city per user. */
-export async function getCurrentCity(): Promise<City | null> {
+export type CityRole = Database["public"]["Enums"]["city_role"];
+
+/**
+ * Every city this user can reach — their own, plus any they were invited to.
+ *
+ * RLS does the filtering: `cities_select` is membership, so this cannot return
+ * a city the caller is not a member of.
+ */
+export async function getReachableCities(): Promise<Array<City & { role: CityRole }>> {
   const supabase = await createClient();
-  const { data } = await supabase.from("cities").select("*").order("created_at").limit(1).maybeSingle();
-  return data;
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const [{ data: cities }, { data: memberships }] = await Promise.all([
+    supabase.from("cities").select("*").order("created_at"),
+    supabase.from("city_members").select("city_id, role").eq("user_id", user.id),
+  ]);
+
+  const roleFor = new Map((memberships ?? []).map((m) => [m.city_id, m.role]));
+  return (cities ?? []).map((c) => ({ ...c, role: roleFor.get(c.id) ?? ("viewer" as CityRole) }));
+}
+
+/**
+ * The city being looked at.
+ *
+ * A cookie remembers the choice, and is validated against what the user can
+ * actually reach rather than trusted — losing access to a shared city should
+ * drop you back into your own, not into an error. With no cookie, your own
+ * city wins over one you were invited to.
+ */
+export async function getCurrentCity(): Promise<City | null> {
+  const reachable = await getReachableCities();
+  if (reachable.length === 0) return null;
+
+  const preferred = (await cookies()).get(ACTIVE_CITY_COOKIE)?.value;
+  const chosen = preferred ? reachable.find((c) => c.id === preferred) : undefined;
+  if (chosen) return chosen;
+
+  return reachable.find((c) => c.role === "owner") ?? reachable[0] ?? null;
+}
+
+/** What the signed-in user may do in a city. */
+export async function getCityRole(cityId: string): Promise<CityRole | null> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  const { data } = await supabase
+    .from("city_members")
+    .select("role")
+    .eq("city_id", cityId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+  return data?.role ?? null;
+}
+
+export type CityPerson = {
+  userId: string;
+  name: string;
+  role: CityRole;
+  isYou: boolean;
+};
+
+export type CityInvite = {
+  id: string;
+  email: string;
+  role: CityRole;
+};
+
+/**
+ * Who is in a city, and who has been asked.
+ *
+ * Names come from `profiles`, which co-members can read because of
+ * `burg.shares_a_city_with`. A member whose profile row is somehow missing is
+ * still listed — a people page that silently omits someone with access would
+ * be worse than one showing "Someone".
+ */
+export async function getCityPeople(
+  cityId: string,
+): Promise<{ people: CityPerson[]; invites: CityInvite[] }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const [{ data: members }, { data: invites }] = await Promise.all([
+    supabase.from("city_members").select("user_id, role").eq("city_id", cityId),
+    supabase.from("city_invites").select("id, email, role").eq("city_id", cityId).order("created_at"),
+  ]);
+
+  const ids = (members ?? []).map((m) => m.user_id);
+  const { data: profiles } = ids.length
+    ? await supabase.from("profiles").select("id, display_name").in("id", ids)
+    : { data: [] };
+  const nameFor = new Map((profiles ?? []).map((p) => [p.id, p.display_name]));
+
+  const people = (members ?? [])
+    .map((m) => ({
+      userId: m.user_id,
+      name: nameFor.get(m.user_id)?.trim() || "Someone",
+      role: m.role,
+      isYou: m.user_id === user?.id,
+    }))
+    // Owner first, then editors, then viewers; you are always easy to find.
+    .sort((a, b) => {
+      const rank = { owner: 0, editor: 1, viewer: 2 } as const;
+      return rank[a.role] - rank[b.role] || a.name.localeCompare(b.name);
+    });
+
+  return { people, invites: invites ?? [] };
 }
 
 export type CityTree = {

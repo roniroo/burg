@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { seedIdeaburg } from "@/lib/seed/ideaburg";
+import { claimInvites } from "@/lib/actions/members";
 
 /**
  * Password auth.
@@ -40,10 +41,15 @@ function safeNext(next: string | undefined): Route {
 }
 
 /**
- * Give the signed-in user a city if they have none.
+ * Give the signed-in user somewhere to land.
  *
  * Called from every sign-in path rather than only the magic-link callback, so
- * however someone gets in, they land in something alive. Idempotent.
+ * however someone gets in, they arrive at something alive. Idempotent.
+ *
+ * Invitations are claimed first: someone invited before they had an account
+ * should find that city waiting the moment they make one, and if it turns out
+ * they were only ever invited to someone else's city they still get their own
+ * to start from.
  */
 export async function ensureCity(): Promise<void> {
   const supabase = await createClient();
@@ -51,6 +57,13 @@ export async function ensureCity(): Promise<void> {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return;
+
+  try {
+    await claimInvites();
+  } catch (error) {
+    // An invitation that will not claim must not block sign-in.
+    console.error("[burg] claiming invites failed for", user.id, error);
+  }
 
   try {
     await seedIdeaburg(supabase, user.id);
