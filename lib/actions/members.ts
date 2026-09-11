@@ -6,14 +6,19 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { ACTIVE_CITY_COOKIE } from "@/lib/queries";
 import type { ActionResult } from "@/lib/actions/city";
+import { COLLABORATORS_ARE_PAID } from "@/lib/plan";
 
 /**
  * Who can reach a city.
  *
  * Every one of these is guarded by RLS rather than by a check written here:
- * `city_members_owner_write` and `city_invites_owner_write` mean a non-owner's
- * statement simply matches no rows. The reads below are for the message, not
- * for the permission.
+ * the `city_members_owner_*` and `city_invites_owner_*` policies mean a
+ * non-owner's statement simply matches no rows. The reads below are for the
+ * message, not for the permission.
+ *
+ * Inviting additionally requires the city's owner to be on the paid plan --
+ * collaborators are the thing being sold -- which `city_invites_owner_insert`
+ * enforces and `inviteToCity` explains.
  *
  * Invitations are addressed to an email, not a user id, because the app cannot
  * look a user up by address -- that needs the service role, which deliberately
@@ -46,6 +51,15 @@ export async function inviteToCity(input: unknown): Promise<ActionResult<{ email
     return { ok: false, error: "That is you — you are already here." };
   }
 
+  // `city_invites_owner_insert` already requires the plan, so this is for the
+  // message rather than the permission: an RLS refusal arrives as "violates
+  // row-level security policy", which tells somebody nothing about what to do
+  // next. The gate is still the policy.
+  const { data: paid } = await supabase.rpc("city_is_paid", { target_city: cityId });
+  if (paid !== true) {
+    return { ok: false, error: COLLABORATORS_ARE_PAID };
+  }
+
   const { error } = await supabase
     .from("city_invites")
     .insert({ city_id: cityId, email, role, invited_by: user.id });
@@ -54,7 +68,12 @@ export async function inviteToCity(input: unknown): Promise<ActionResult<{ email
     // The unique index is on (city_id, lower(email)).
     if (error.code === "23505") return { ok: false, error: "They have already been invited." };
     // RLS refusing a non-owner looks like a policy violation, not a crash.
-    if (error.code === "42501") return { ok: false, error: "Only the city's owner can invite people." };
+    // Either not the owner, or the plan lapsed between the check above and
+    // here. Both are 42501, and the plan is the likelier of the two to have
+    // changed under them.
+    if (error.code === "42501") {
+      return { ok: false, error: "Only the city's owner, on the paid plan, can invite people." };
+    }
     return { ok: false, error: error.message };
   }
 

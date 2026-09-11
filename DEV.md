@@ -279,6 +279,98 @@ turns any invite for that address into membership. Since signup is closed,
 someone invited still needs an account made for them with
 `npm run seed -- <email> --create`.
 
+### Plans and billing
+
+Collaboration is the paid feature; the caps are 5 districts and 50 buildings.
+The reasoning is in the README — this is how to work on it.
+
+```bash
+# One sandbox, once. Prints keys; claim it before it expires (7 days).
+stripe sandbox create --from-git
+stripe sandbox claim
+
+# .env.local
+STRIPE_SECRET_KEY=...          # the sandbox's secret key
+STRIPE_PRICE_ID=price_...      # the monthly price
+STRIPE_WEBHOOK_SECRET=whsec_...   # printed by `stripe listen`, below
+
+# Events, while you work. Leave it running.
+stripe listen --forward-to localhost:3000/api/stripe/webhook
+```
+
+Creating the product and price, if starting from nothing:
+
+```bash
+stripe products create --name "Burg" \
+  --description "Unlimited districts and buildings, and people to share the city with."
+stripe prices create --product prod_... --unit-amount 800 --currency usd \
+  -d "recurring[interval]=month"
+```
+
+**Two things keep `public.subscriptions` honest, and the overlap is deliberate:**
+
+| | |
+|---|---|
+| the webhook | Stripe tells us the moment anything changes. |
+| `syncUser` | `/plan` re-reads Stripe when it renders, so the state is right on the screen where it matters even if a webhook was missed, never configured, or arrived out of order. |
+
+Both write from a **fresh read of Stripe** rather than from the event payload,
+because delivery is not ordered — a stale `customer.subscription.updated` can
+land after the `deleted` that superseded it. This is not theoretical: during
+the build the `stripe listen` session reconnected and dropped the checkout
+events entirely, and the row was correct anyway because `/plan?checkout=done`
+resynced it.
+
+**The webhook needs `SUPABASE_SERVICE_ROLE_KEY`, and this is new.** It used to
+be absent from the web service on purpose. Stripe is not a signed-in user, so
+writing somebody's subscription row is necessarily a cross-RLS write; and
+`public.subscriptions` deliberately has **no insert or update policy**, because
+a user who could write their own row would just set `status = 'active'` through
+PostgREST and take the paid plan for free. `check-plan.ts` asserts exactly
+that. So billing is the one runtime consumer of the key — nothing else in the
+app asks for it, and without it billing is the only thing that breaks.
+
+The rejected alternative, recorded so the reasoning is not lost: a
+`SECURITY DEFINER` function guarded by its own secret, so a leak grants a free
+subscription rather than the whole database. Genuinely a narrower blast radius,
+and not taken — it needs a second secret managed outside migrations to guard
+the one thing the first secret would be used for, and "the webhook writes with
+the service role" is the shape a reviewer can check at a glance.
+
+**The period end is on the subscription *item*, not the subscription.** Recent
+API versions moved it; reading `subscription.current_period_end` silently gives
+`undefined`, which is how a "renews on" line quietly goes blank. See
+`periodEnd()` in `lib/billing.ts`.
+
+Statuses that entitle: `active`, `trialing`, `past_due`, and Burg's own
+`comped`. `past_due` is on the list because Stripe is still retrying, and
+taking a city's collaborators away over a card that needs updating punishes the
+wrong thing.
+
+To comp an account — the paid plan with no Stripe objects behind it:
+
+```sql
+insert into public.subscriptions (user_id, status)
+select id, 'comped' from auth.users where email = 'them@example.com'
+on conflict (user_id) do update set status = 'comped', updated_at = now();
+```
+
+`veronica.leigh.head@gmail.com` is comped, so the real city is not boxed in by
+its own pricing experiment. `seedtest@burg.local` is left on a real
+subscription, which is what the browser checks run against.
+
+Testing a card: `4242 4242 4242 4242`, any future expiry, any CVC. Untick
+**Save my information for faster checkout** on Stripe's page first — leaving it
+on makes the phone number required and the submit silently fails validation.
+
+`check-plan.ts` proves the caps and the gate against the database: it builds a
+throwaway city, fills it to exactly 50 buildings and 5 districts, and asserts
+the next insert is refused by the trigger. It uses a scratch city rather than
+the demo one precisely because proving the building boundary means inserting 50
+of them. Note the triggers fire for the service role too — RLS is bypassed by
+it, triggers are not — which is why those assertions can use `admin` and still
+be testing the real boundary.
+
 ### The public pages
 
 `/terms` and `/privacy` are rendered from `docs/terms.md` and

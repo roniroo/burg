@@ -44,6 +44,7 @@ step "legal";      npx tsx scripts/check-legal.ts               2>&1 | grep -E '
 step "re-mint cookie"; npx tsx scripts/dev-session.ts seedtest@burg.local || fail=1
 
 step "members";    npx tsx scripts/check-members.ts             2>&1 | grep -E '^(PASS|FAIL)|page error'
+step "plans";      npx tsx scripts/check-plan.ts                2>&1 | grep -E '^(PASS|FAIL)|page error'
 step "map";        npx tsx scripts/check-map.ts                 2>&1 | grep -E '^(PASS|FAIL)|page error'
 step "newsstand";  npx tsx scripts/check-newsstand.ts "$kiosk"  2>&1 | grep -E '^(PASS|FAIL)|page error'
 step "document";   npx tsx scripts/check-doc.ts "$doc"          2>&1 | grep -E '^(PASS|FAIL)|page error'

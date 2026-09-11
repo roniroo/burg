@@ -9,6 +9,7 @@ import {
   removeMember,
   revokeInvite,
 } from "@/lib/actions/members";
+import Link from "next/link";
 import type { CityInvite, CityPerson, CityRole } from "@/lib/queries";
 
 /**
@@ -34,12 +35,17 @@ export function People({
   role,
   people,
   invites,
+  paid,
 }: {
   cityId: string;
   cityName: string;
   role: CityRole;
   people: CityPerson[];
   invites: CityInvite[];
+  /** Whether this city's owner is on the paid plan. Collaborators are the
+      paid feature, so a free owner is shown why rather than an invite form
+      that can only fail. */
+  paid: boolean;
 }) {
   const router = useRouter();
   const isOwner = role === "owner";
@@ -156,7 +162,22 @@ export function People({
         </>
       ) : null}
 
-      {isOwner ? (
+      {isOwner && !paid ? (
+        <div className="mt-6 border-2 border-ink bg-paper p-3">
+          <h3 className="font-pixel text-[10px] uppercase text-stone">Sharing this city</h3>
+          <p className="mt-2 font-body text-sm text-slate">
+            Inviting people is the paid plan. The free plan is a city of your own — the
+            moment it is a city other people can reach, it is doing the thing worth paying
+            for.
+          </p>
+          <Link
+            href="/plan"
+            className="mt-3 inline-block border-2 border-ink bg-gold px-3 py-1 font-pixel text-[10px] uppercase text-ink shadow-hard"
+          >
+            See the plan
+          </Link>
+        </div>
+      ) : isOwner ? (
         <form
           className="mt-6 flex flex-wrap items-end gap-2 border-2 border-ink bg-snow p-3 shadow-hard"
           onSubmit={(event) => {

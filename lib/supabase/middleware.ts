@@ -8,12 +8,19 @@ import type { Database } from "@/lib/database.types";
  * The legal pages are public on purpose: someone has to be able to read the
  * terms before agreeing to them, and a privacy policy behind a login is not a
  * privacy policy.
+ *
+ * The Stripe webhook is public because Stripe has no session and never will;
+ * what stands in for one is the signature check in the route itself, which
+ * verifies an HMAC of the raw body. Note the exact path rather than `/api`:
+ * opening the whole prefix would make every future route public by default,
+ * which is the wrong way round.
  */
 const PUBLIC_PATHS = [
   "/sign-in",
   "/auth",
   "/terms",
   "/privacy",
+  "/api/stripe/webhook",
   "/_next",
   "/favicon.ico",
   // The matcher in proxy.ts exempts anything ending in an image extension, so

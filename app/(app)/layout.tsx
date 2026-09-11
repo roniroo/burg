@@ -37,6 +37,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           >
             Directory
           </Link>
+          <Link
+            href="/plan"
+            className="border-2 border-ink bg-paper px-3 py-1 font-pixel text-xs uppercase text-ink shadow-hard"
+          >
+            Plan
+          </Link>
           <span className="hidden font-pixel text-[10px] uppercase text-stone sm:inline">⌘K</span>
           <SupportLink />
           <form action={signOut}>

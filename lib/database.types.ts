@@ -847,6 +847,39 @@ export type Database = {
           },
         ]
       }
+      subscriptions: {
+        Row: {
+          cancel_at_period_end: boolean
+          current_period_end: string | null
+          price_id: string | null
+          status: string
+          stripe_customer_id: string | null
+          stripe_subscription_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          cancel_at_period_end?: boolean
+          current_period_end?: string | null
+          price_id?: string | null
+          status?: string
+          stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          cancel_at_period_end?: boolean
+          current_period_end?: string | null
+          price_id?: string | null
+          status?: string
+          stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       table_fields: {
         Row: {
           building_id: string
@@ -1051,6 +1084,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      city_is_paid: { Args: { target_city: string }; Returns: boolean }
       search_all: {
         Args: { p_city_id: string; p_query: string }
         Returns: {

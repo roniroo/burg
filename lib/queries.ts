@@ -1,6 +1,14 @@
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/database.types";
+import {
+  allowancesFor,
+  FREE_PLAN,
+  isEntitled,
+  type Allowances,
+  type Plan,
+  type Usage,
+} from "@/lib/plan";
 
 /** Which of the cities you can reach you are currently looking at. */
 export const ACTIVE_CITY_COOKIE = "burg-city";
@@ -207,3 +215,64 @@ export async function getConnections(cityId: string): Promise<Connection[]> {
 // Presentation constants live in lib/artifacts.ts so that client components
 // can import them without pulling this server-only module in with them.
 export { BUILDING_GLYPH, BUILDING_NOUN } from "@/lib/artifacts";
+
+/**
+ * The plan a city is on, what it has used, and what that leaves.
+ *
+ * Read through `city_is_paid` rather than from `subscriptions` directly: the
+ * plan belongs to the city's *owner*, and a collaborator has no read on
+ * somebody else's billing row. The RPC answers the one boolean they are
+ * entitled to know and nothing else.
+ *
+ * Counts are `head: true` counts rather than fetched rows -- the caller wants
+ * two numbers, not fifty buildings.
+ */
+export async function getCityPlan(cityId: string): Promise<{
+  paid: boolean;
+  usage: Usage;
+  allowances: Allowances;
+}> {
+  const supabase = await createClient();
+
+  const [{ data: paid }, districts, buildings] = await Promise.all([
+    supabase.rpc("city_is_paid", { target_city: cityId }),
+    supabase.from("neighborhoods").select("*", { count: "exact", head: true }).eq("city_id", cityId),
+    supabase.from("buildings").select("*", { count: "exact", head: true }).eq("city_id", cityId),
+  ]);
+
+  const usage: Usage = {
+    districts: districts.count ?? 0,
+    buildings: buildings.count ?? 0,
+  };
+
+  return { paid: paid === true, usage, allowances: allowancesFor(paid === true, usage) };
+}
+
+/**
+ * The signed-in user's own subscription, for the plan page.
+ *
+ * Only ever their own: `subscriptions_select_own` is the only policy on the
+ * table, so this returns nothing for anybody else's row however it is asked.
+ */
+export async function getMyPlan(): Promise<Plan> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return FREE_PLAN;
+
+  const { data } = await supabase
+    .from("subscriptions")
+    .select("status, current_period_end, cancel_at_period_end")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (!data) return FREE_PLAN;
+
+  return {
+    paid: isEntitled(data.status),
+    status: data.status,
+    currentPeriodEnd: data.current_period_end,
+    cancelAtPeriodEnd: data.cancel_at_period_end,
+  };
+}

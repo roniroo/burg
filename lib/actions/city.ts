@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { canPlace, type Footprint, type Terrain } from "@/lib/placement";
 import { SPRITE_FOR_TYPE, spriteFootprint, type SpriteVariant } from "@/lib/sprites";
 import type { Json } from "@/lib/database.types";
+import { capReached, capViolation, FREE_LIMITS } from "@/lib/plan";
 
 /**
  * City-shaping actions: placing buildings, founding neighbourhoods, moving and
@@ -20,6 +21,23 @@ import type { Json } from "@/lib/database.types";
 export type ActionResult<T = undefined> =
   | ({ ok: true } & (T extends undefined ? object : { data: T }))
   | { ok: false; error: string };
+
+/**
+ * Is this city on the paid plan?
+ *
+ * Asked through the RPC rather than by reading `subscriptions`, because the
+ * plan belongs to the city's owner and an editor cannot read the owner's row.
+ * A failed call answers "not paid", which caps an editor who should not have
+ * been capped -- the safe direction, since the alternative is handing out the
+ * paid plan whenever the database hiccups.
+ */
+async function cityIsPaid(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  cityId: string,
+): Promise<boolean> {
+  const { data } = await supabase.rpc("city_is_paid", { target_city: cityId });
+  return data === true;
+}
 
 const ARTIFACT_TYPES = ["doc", "table", "board", "canvas", "kiosk"] as const;
 
@@ -88,6 +106,15 @@ export async function createBuilding(input: unknown): Promise<ActionResult<{ id:
     footprint_h: shape.h,
   };
 
+  // The plan check sits beside the placement check and runs first: somebody at
+  // the cap should hear about the cap, not be sent back to fiddle with a lot
+  // that was never the problem. `occupied` is already every building in the
+  // city, so the count costs nothing. Moving a building is deliberately not
+  // capped -- it does not add one.
+  if (context.occupied.length >= FREE_LIMITS.buildings && !(await cityIsPaid(supabase, context.city.id))) {
+    return { ok: false, error: capReached("building") };
+  }
+
   const verdict = canPlace({
     footprint,
     region: context.hood,
@@ -115,6 +142,11 @@ export async function createBuilding(input: unknown): Promise<ActionResult<{ id:
   });
 
   if (error) {
+    // The trigger is the real boundary; reaching it means two tabs both passed
+    // the check above.
+    if (capViolation(error.message) === "building") {
+      return { ok: false, error: capReached("building") };
+    }
     // The exclusion constraint is the last word if a client raced us.
     if (error.code === "23P01" || error.code === "23505") {
       return { ok: false, error: "Something was just built on that lot." };
@@ -300,6 +332,12 @@ export async function createNeighborhood(input: unknown): Promise<ActionResult<{
     if (overlaps) return { ok: false, error: "That region overlaps an existing neighbourhood." };
   }
 
+  // Same shape as the building cap: the count is already in hand, so the only
+  // new question is whether the city is paying.
+  if ((existing ?? []).length >= FREE_LIMITS.districts && !(await cityIsPaid(supabase, p.cityId))) {
+    return { ok: false, error: capReached("district") };
+  }
+
   const base = p.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "district";
   const taken = new Set((existing ?? []).map((n) => n.slug));
   let slug = base;
@@ -320,7 +358,12 @@ export async function createNeighborhood(input: unknown): Promise<ActionResult<{
     height: p.height,
     position: (existing ?? []).length,
   });
-  if (error) return { ok: false, error: error.message };
+  if (error) {
+    if (capViolation(error.message) === "district") {
+      return { ok: false, error: capReached("district") };
+    }
+    return { ok: false, error: error.message };
+  }
 
   // Tint the ground so the region reads as a district immediately.
   const tiles = [];

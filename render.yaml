@@ -25,6 +25,30 @@ services:
         sync: false
       - key: NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
         sync: false
+      # Billing. All three are server-only and set in the dashboard.
+      #
+      # SUPABASE_SERVICE_ROLE_KEY was deliberately absent until billing, and
+      # the reason it is here now is worth stating: Stripe is not a signed-in
+      # user, so writing somebody's subscription row is necessarily a
+      # cross-RLS write. public.subscriptions has NO insert or update policy
+      # on purpose -- a user who could write their own row would set
+      # status = 'active' through PostgREST and take the paid plan for free --
+      # so the webhook and the read-time resync are the only runtime uses.
+      # It still bypasses RLS entirely, so treat it accordingly.
+      #
+      # Without these three, billing is the only thing that breaks: /plan says
+      # billing is not configured, and every city stays on the free plan.
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_PRICE_ID
+        sync: false
+      # From the endpoint's signing secret in the Stripe dashboard, pointed at
+      # https://<origin>/api/stripe/webhook -- not from `stripe listen`, whose
+      # secret is only good for the local forwarder.
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
 # Deliberately NOT declared here:
 #
 #   NEXT_PUBLIC_SITE_URL -- nothing reads it. The callback route builds its
@@ -34,12 +58,14 @@ services:
 #   "built from" the variable, which is the sort of note that gets a wrong value
 #   baked into a build before anyone checks. What DOES have to match the
 #   deployed origin is Supabase's redirect allow list -- see below.
-#
-#   SUPABASE_SERVICE_ROLE_KEY -- the app never needs it at runtime, because
-#   first-sign-in seeding runs as the signed-in user through RLS. It bypasses
-#   RLS entirely, so a public web service is the wrong place to keep it. Only
-#   the CLI seeder wants it, and that runs from a laptop.
 
 # After first deploy, add the service's origin to Supabase:
 #   Authentication → URL Configuration → Site URL + Redirect URLs
 # or via the Management API. Without it every sign-in redirect bounces.
+#
+# And register the Stripe webhook endpoint at
+#   https://<origin>/api/stripe/webhook
+# subscribing to checkout.session.completed, customer.subscription.*, and
+# invoice.paid / invoice.payment_failed. /plan resyncs from Stripe on its own,
+# so a missing endpoint degrades rather than breaks -- but renewals then only
+# land when the owner next loads the page.
