@@ -122,6 +122,41 @@ export async function signUpWithPassword(input: unknown): Promise<AuthResult> {
   redirect(safeNext(parsed.data.next));
 }
 
+const newPassword = z.object({
+  password: z.string().min(8, "Use at least 8 characters."),
+});
+
+/**
+ * Set a new password for whoever the current session belongs to.
+ *
+ * A recovery link is a real sign-in: following it leaves a session, and this
+ * changes that session's password. It deliberately does not take an email --
+ * the account is whoever the cookie says it is, so a caller cannot aim it at
+ * someone else's account by passing a different address.
+ */
+export async function updatePassword(input: unknown): Promise<AuthResult> {
+  const parsed = newPassword.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Check that password." };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return {
+      ok: false,
+      error: "That reset link has expired. Ask for a new one from the sign-in page.",
+    };
+  }
+
+  const { error } = await supabase.auth.updateUser({ password: parsed.data.password });
+  if (error) return { ok: false, error: error.message };
+
+  return { ok: true, message: "Password changed." };
+}
+
 export async function signOut(): Promise<void> {
   const supabase = await createClient();
   // Local scope: end this browser's session only. Supabase defaults to

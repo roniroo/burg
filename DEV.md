@@ -213,6 +213,7 @@ npx tsx scripts/check-auth.ts                   # password, sign out, link shape
 npx tsx scripts/check-studio.ts                 # whiteboard tools and saving
 npx tsx scripts/check-a11y.ts                   # axe, normal + reduced motion
 npx tsx scripts/check-demolish.ts               # demolish, dissolve, start fresh
+npx tsx scripts/check-legal.ts                  # terms, privacy, password reset
 ```
 
 `check-demolish.ts` runs last in `npm run check` and leaves the demo city
@@ -233,6 +234,23 @@ npx tsx scripts/shot.ts /city city-rm.png --reduced-motion
 ```
 
 Output lands in `scripts/shots/` (gitignored).
+
+### The public pages
+
+`/terms` and `/privacy` are rendered from `docs/terms.md` and
+`docs/private-policy.md` at request time, and they are in the middleware's
+`PUBLIC_PATHS` — someone has to be able to read the terms before agreeing to
+them, and a privacy policy behind a login is not a privacy policy.
+
+`lib/markdown.ts` reads them. It is a deliberately small parser covering only
+what those two files use, and it returns **typed blocks rather than an HTML
+string**, so the renderer sets every string through React and there is no
+`dangerouslySetInnerHTML` anywhere. Both the unit tests and `check-legal.ts`
+assert that the rendered page contains exactly as many words as the source
+file: a legal page that quietly drops a clause is the failure that matters.
+
+Editing a policy is editing the Markdown — a reviewed commit with a diff and a
+date, which is what "Last updated" on a policy page is supposed to mean.
 
 ### Sprites and footprints
 

@@ -30,6 +30,7 @@ table=$(echo "$ids" | grep 'Roadmap'           | cut -f2)
 board=$(echo "$ids" | grep 'Harbor Plaza'      | cut -f2)
 
 step "auth";       npx tsx scripts/check-auth.ts                2>&1 | grep -E '^(PASS|FAIL)|page error'
+step "legal";      npx tsx scripts/check-legal.ts               2>&1 | grep -E '^(PASS|FAIL)|page error'
 step "map";        npx tsx scripts/check-map.ts                 2>&1 | grep -E '^(PASS|FAIL)|page error'
 step "newsstand";  npx tsx scripts/check-newsstand.ts "$kiosk"  2>&1 | grep -E '^(PASS|FAIL)|page error'
 step "document";   npx tsx scripts/check-doc.ts "$doc"          2>&1 | grep -E '^(PASS|FAIL)|page error'

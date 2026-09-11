@@ -2,8 +2,22 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import type { Database } from "@/lib/database.types";
 
-/** Routes reachable without a session. Everything else redirects to sign-in. */
-const PUBLIC_PATHS = ["/sign-in", "/auth", "/_next", "/favicon.ico", "/sprites"];
+/**
+ * Routes reachable without a session. Everything else redirects to sign-in.
+ *
+ * The legal pages are public on purpose: someone has to be able to read the
+ * terms before agreeing to them, and a privacy policy behind a login is not a
+ * privacy policy.
+ */
+const PUBLIC_PATHS = [
+  "/sign-in",
+  "/auth",
+  "/terms",
+  "/privacy",
+  "/_next",
+  "/favicon.ico",
+  "/sprites",
+];
 
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });

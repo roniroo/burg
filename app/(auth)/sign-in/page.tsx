@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { SignInForm } from "./sign-in-form";
@@ -31,6 +32,16 @@ export default async function SignInPage({
       <p className="mt-4 text-center font-body text-xs text-stone">
         Burg is made by one person. <SupportLink variant="block" />
       </p>
+
+      <nav aria-label="Legal" className="mt-4 flex items-center gap-3 font-pixel text-[10px] uppercase text-stone">
+        <Link href="/terms" className="underline decoration-mist underline-offset-4 hover:text-ink">
+          Terms
+        </Link>
+        <span aria-hidden>·</span>
+        <Link href="/privacy" className="underline decoration-mist underline-offset-4 hover:text-ink">
+          Privacy
+        </Link>
+      </nav>
     </main>
   );
 }

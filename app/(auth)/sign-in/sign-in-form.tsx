@@ -22,6 +22,7 @@ export function SignInForm({ next, initialError }: { next?: string; initialError
   const [error, setError] = useState<string | null>(initialError ?? null);
   const [notice, setNotice] = useState<string | null>(null);
   const [linkSent, setLinkSent] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
   const [pending, startTransition] = useTransition();
 
   function submit(event: React.FormEvent) {
@@ -73,6 +74,43 @@ export function SignInForm({ next, initialError }: { next?: string; initialError
     setLinkSent(true);
   }
 
+  /**
+   * Send a reset link.
+   *
+   * It lands on /auth/callback like every other email link, which establishes
+   * the session, and `next` carries it on to the form that sets the password.
+   */
+  async function sendPasswordReset() {
+    setError(null);
+    setNotice(null);
+
+    if (!email.trim()) {
+      setError("Enter your email address first, then ask for the reset.");
+      return;
+    }
+
+    const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(
+      "/auth/new-password",
+    )}`;
+
+    const supabase = createClient();
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo,
+    });
+
+    if (resetError) {
+      setError(
+        /rate limit/i.test(resetError.message)
+          ? "Supabase's built-in mail server only allows a few messages an hour, and that is used up. Try again later."
+          : resetError.message,
+      );
+      return;
+    }
+    // Deliberately the same message whether or not the address has an account:
+    // this form should not be a way to find out who has one.
+    setResetSent(true);
+  }
+
   async function signInWithGoogle() {
     const redirectTo = `${window.location.origin}/auth/callback${
       next ? `?next=${encodeURIComponent(next)}` : ""
@@ -83,6 +121,26 @@ export function SignInForm({ next, initialError }: { next?: string; initialError
       options: { redirectTo },
     });
     if (oauthError) setError(oauthError.message);
+  }
+
+  if (resetSent) {
+    return (
+      <div className="mt-6 flex flex-col gap-3">
+        <p className="border-2 border-ink bg-gold p-3 font-pixel text-xs text-ink">
+          If that address has an account, a reset link is on its way.
+        </p>
+        <p className="font-body text-xs text-stone">
+          Open it in this browser. The link signs you in just long enough to choose a new password.
+        </p>
+        <button
+          type="button"
+          onClick={() => setResetSent(false)}
+          className="self-start border-2 border-ink bg-paper px-3 py-2 font-pixel text-xs uppercase shadow-hard"
+        >
+          Back
+        </button>
+      </div>
+    );
   }
 
   if (linkSent) {
@@ -178,6 +236,16 @@ export function SignInForm({ next, initialError }: { next?: string; initialError
       >
         {pending ? "…" : mode === "signin" ? "Sign in" : "Create account"}
       </button>
+
+      {mode === "signin" ? (
+        <button
+          type="button"
+          onClick={sendPasswordReset}
+          className="self-start font-body text-xs text-stone underline decoration-mist underline-offset-4 hover:text-ink"
+        >
+          Forgotten your password?
+        </button>
+      ) : null}
 
       <div className="mt-2 flex flex-col gap-2 border-t-2 border-mist pt-3">
         <button
