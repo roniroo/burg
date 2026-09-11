@@ -239,6 +239,38 @@
     }
   }
 
+  /* A building's hit area is its art, not its bounding box.
+
+     The sprite is an isometric silhouette inside a rectangle, and for anything
+     with a footprint bigger than 1x1 that rectangle's empty corners reach
+     several tiles past the art. A 2x3 warehouse was claiming five tiles of
+     visibly bare ground to its west: in demolish mode you clicked cobble and
+     condemned a building drawn four tiles away, and on the map you opened one.
+
+     SVG already solves this. `visiblePainted` is the default hit-testing rule
+     for a shape, and the sprite is nothing but <polygon> -- no backing rect --
+     so the painted silhouette is exactly the right target. The button opts out
+     of being a target itself and the polygons opt back in; a click on one
+     bubbles to the button, so onClick, :hover and the group-hover label all
+     behave as before. Keyboard focus is untouched -- pointer-events says
+     nothing about tab order, which is what keeps every building a real
+     focusable button.
+
+     Smoke stays out of it: chimney puffs float above the roofline, and a
+     drifting puff is not a thing anyone is trying to click. */
+  [data-building] {
+    pointer-events: none;
+  }
+
+  [data-building] polygon {
+    pointer-events: visiblePainted;
+  }
+
+  [data-building] .sprite-puff,
+  [data-building] .sprite-puff polygon {
+    pointer-events: none;
+  }
+
   /* The hard 2px offset shadow that stands in for elevation everywhere. */
   .shadow-hard {
     box-shadow: 2px 2px 0 0 var(--color-ink);

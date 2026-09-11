@@ -78,9 +78,10 @@ for (const b of candidates ?? []) {
 }
 check("found a building on screen to condemn", !!victim, victim?.title ?? "");
 
-// Click the element rather than a computed point. A sprite's bounding box is
-// padded a few pixels past its art, and that bottom sliver is covered by the
-// ground tile of the row in front -- aiming there condemns the district.
+// Click the element rather than a computed point: Playwright aims at the box
+// centre and verifies what it hit, which is exactly right now that the hit
+// area is the painted art. Aiming at a computed corner would miss the
+// silhouette and land on the ground behind, condemning the district instead.
 await page.locator(`[data-building="${victim!.id}"]`).click();
 await page.waitForTimeout(400);
 await page.screenshot({ path: "scripts/shots/demolish-condemned.png" });
@@ -161,25 +162,66 @@ await page.waitForTimeout(300);
 const { data: mapHood } = await admin
   .from("neighborhoods").select("id, name, origin_x, origin_y, width, height")
   .eq("city_id", city.id).order("position").limit(1).single();
-const { data: onHood } = await admin
-  .from("buildings").select("tile_x, tile_y, footprint_w, footprint_h").eq("neighborhood_id", mapHood!.id);
 
-// A tile inside the district with nothing on it, that is also on screen.
-let openGround: { x: number; y: number } | null = null;
-for (let y = mapHood!.origin_y; y < mapHood!.origin_y + mapHood!.height && !openGround; y++) {
-  for (let x = mapHood!.origin_x; x < mapHood!.origin_x + mapHood!.width && !openGround; x++) {
-    const taken = (onHood ?? []).some(
-      (b) => x >= b.tile_x && x < b.tile_x + b.footprint_w && y >= b.tile_y && y < b.tile_y + b.footprint_h,
-    );
-    if (taken) continue;
-    const at = await screenFor(x, y);
-    if (at.x > 20 && at.y > 100 && at.x < 1380 && at.y < 820) openGround = { x, y };
-  }
-}
-check("found open ground inside a district", !!openGround, JSON.stringify(openGround));
+// Ground you could actually click, which is not the same as a tile with no
+// footprint on it. This is an isometric view: a two-storey building is drawn
+// *over* the tiles behind it, so several empty tiles sit under its art and
+// clicking them correctly condemns the building you can see there. Asking the
+// page what is under the point is the only honest test of "open ground".
+//
+// `screenFor` already returns the centre of the tile's diamond -- the `+ 16`
+// is baked into its y. An earlier version of this added another 16 at the
+// click, which landed on the diamond's bottom vertex: the one point the tile
+// shares with the row in front, and reliably under that row's sprite.
+const clearTiles = (await page.evaluate(
+  `(function () {
+     var ox = ${mapHood!.origin_x}, oy = ${mapHood!.origin_y};
+     var w = ${mapHood!.width}, h = ${mapHood!.height};
+     var world = document.querySelector("[data-world]");
+     var m = new DOMMatrixReadOnly(getComputedStyle(world).transform);
+     var rect = world.parentElement.getBoundingClientRect();
+     var out = [];
+     for (var y = oy; y < oy + h; y++) {
+       for (var x = ox; x < ox + w; x++) {
+         var cx = rect.left + (x - y) * 32 * m.a + m.e;
+         var cy = rect.top + ((x + y) * 16 + 16) * m.d + m.f;
+         if (cx < 20 || cy < 110 || cx > 1380 || cy > 820) continue;
+         var el = document.elementFromPoint(cx, cy);
+         if (el && el.closest("[data-building]")) continue;
+         out.push({ x: x, y: y });
+       }
+     }
+     return out;
+   })()`,
+)) as Array<{ x: number; y: number }>;
+
+const openGround = clearTiles[0] ?? null;
+check("found open ground inside a district", !!openGround,
+  openGround ? `${JSON.stringify(openGround)}, ${clearTiles.length} clear tiles` : "none clear");
+
+// The bug this guards: the button around a sprite is a rectangle, and an
+// isometric silhouette does not fill its rectangle. Before the art became the
+// hit area, a 2x3 warehouse claimed five tiles of visibly bare ground to its
+// west -- you clicked cobble and condemned a building drawn four tiles away.
+const cornerIsNotTheBuilding = await page.evaluate(
+  `(function () {
+     var wide = null;
+     var all = document.querySelectorAll("[data-building]");
+     for (var i = 0; i < all.length; i++) {
+       var r = all[i].getBoundingClientRect();
+       if (r.width > 96 && r.left > 4 && r.bottom < innerHeight - 4) { wide = all[i]; break; }
+     }
+     if (!wide) return "no multi-tile building on screen";
+     var b = wide.getBoundingClientRect();
+     var el = document.elementFromPoint(b.left + 4, b.bottom - 4);
+     return el && el.closest("[data-building]") === wide ? "STILL THE WHOLE RECTANGLE" : "ok";
+   })()`,
+);
+check("a sprite's hit area is its art, not its bounding box",
+  cornerIsNotTheBuilding === "ok", String(cornerIsNotTheBuilding));
 
 const groundPoint = await screenFor(openGround!.x, openGround!.y);
-await page.mouse.click(groundPoint.x, groundPoint.y + 16);
+await page.mouse.click(groundPoint.x, groundPoint.y);
 await page.waitForTimeout(400);
 await page.screenshot({ path: "scripts/shots/demolish-district.png" });
 

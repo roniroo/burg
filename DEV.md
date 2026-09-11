@@ -403,6 +403,23 @@ from its recipe the sprite is squeezed onto the wrong face and `depthFor()`
 sorts it against the wrong neighbours — `scripts/dev-footprints.ts` finds and
 repairs that.
 
+**A building's hit area is its art, not its bounding box.** The button around
+a sprite is a rectangle and an isometric silhouette does not fill one, so for
+anything bigger than 1x1 the rectangle's empty corners reach several tiles past
+the drawing. A 2x3 warehouse used to claim five tiles of visibly bare ground to
+its west: you clicked cobble in demolish mode and condemned a building drawn
+four tiles away. The fix is three lines of CSS in `globals.css` rather than any
+geometry -- SVG's `visiblePainted` is already the default hit-testing rule for
+a shape, and the sprite is nothing but `<polygon>` with no backing rect, so the
+button opts out of being a target and the polygons opt back in. Keyboard focus
+is untouched; `pointer-events` says nothing about tab order.
+
+Note what is *not* a bug: a two-storey building legitimately covers the tiles
+behind it, so clicking there condemns the building rather than the district.
+That is what isometric depth means, and it is why a test looking for "open
+ground" has to ask the page what is under the point rather than assume an empty
+footprint is clickable -- see `check-demolish.ts`.
+
 Street furniture has no table behind it: `lib/props.ts` derives the scatter
 from the tile's coordinates and the city's seed, so it is stable across
 reloads without a row per lamp post. Nobody can place a lamp deliberately;
