@@ -16,6 +16,11 @@ const PUBLIC_PATHS = [
   "/privacy",
   "/_next",
   "/favicon.ico",
+  // The matcher in proxy.ts exempts anything ending in an image extension, so
+  // the icons are already through; the manifest has no extension it
+  // recognises, and a browser that is told to fetch it from the sign-in page
+  // would otherwise be answered with a redirect back to the sign-in page.
+  "/manifest.webmanifest",
   "/sprites",
 ];
 
