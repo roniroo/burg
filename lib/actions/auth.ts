@@ -94,11 +94,23 @@ export async function signUpWithPassword(input: unknown): Promise<AuthResult> {
     password: parsed.data.password,
   });
 
-  if (error) return { ok: false, error: error.message };
+  if (error) {
+    // Signups are closed on this project. Supabase's own wording ("Signups not
+    // allowed for this instance") reads like a misconfiguration rather than a
+    // decision, so say what is actually true.
+    if (/signups? not allowed|signup is disabled/i.test(error.message)) {
+      return {
+        ok: false,
+        error: "New accounts are closed right now. If you already have one, sign in above.",
+      };
+    }
+    return { ok: false, error: error.message };
+  }
 
-  // Email confirmation is off on this project, so signUp normally returns a
-  // session and we are already in. This branch only runs if someone turns
-  // confirmation back on, and it must not leave the user stranded.
+  // Email confirmation is on, so signUp returns no session and the account is
+  // not usable until the link is followed. Signups being closed means this
+  // branch is currently unreachable from the form, but it is the correct
+  // behaviour the moment either setting changes, and it must not strand anyone.
   if (!data.session) {
     return {
       ok: true,

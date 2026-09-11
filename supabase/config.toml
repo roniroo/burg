@@ -183,7 +183,12 @@ enable_refresh_token_rotation = true
 # Requires enable_refresh_token_rotation = true.
 refresh_token_reuse_interval = 10
 # Allow/disallow new user signups to your project.
-enable_signup = true
+# Off, matching the hosted project: Burg is invite-only. Kept in sync here on
+# purpose -- a stray `supabase config push` overwrites the remote auth config
+# wholesale, and if this said true it would silently reopen public signup on
+# production. Make a local account with `npm run seed -- you@example.com --create`,
+# which goes through the admin API and is unaffected by this setting.
+enable_signup = false
 # Allow/disallow anonymous sign-ins to your project.
 enable_anonymous_sign_ins = false
 # Allow/disallow testing manual linking of accounts
@@ -228,15 +233,19 @@ web3 = 30
 
 [auth.email]
 # Allow/disallow new user signups via email to your project.
-enable_signup = true
+# Off, matching the hosted project. See the note on enable_signup above.
+enable_signup = false
 # If enabled, a user will be required to confirm any email change on both the old, and new email
 # addresses. If disabled, only the new email is required to confirm.
 double_confirm_changes = true
 # If enabled, users need to confirm their email address before signing in.
-# Off deliberately: signing up should put you straight into your city. The
-# built-in mail server allows only two messages an hour, so requiring a
-# confirmation email made signup a coin flip.
-enable_confirmations = false
+# On, matching the hosted project. This was off while signup was open, because
+# the built-in mail server allows only two messages an hour and a confirmation
+# step made signup a coin flip. With signup closed that trade-off is gone: no
+# one is waiting on a confirmation email, and the setting is here so that
+# reopening signup does not also hand out accounts for addresses nobody owns.
+# Configure real SMTP under [auth.email.smtp] before reopening signup.
+enable_confirmations = true
 # If enabled, users will need to reauthenticate or have logged in recently to change their password.
 secure_password_change = false
 # Controls the minimum amount of time that must pass before sending another signup confirmation or password reset email.

@@ -66,8 +66,15 @@ Then open **http://localhost:3000**. Source is bind-mounted, so edits hot-reload
 
 ### 4. Sign in
 
-Go to http://localhost:3000/sign-in, pick **Create account**, and use any email
-and a password of 8+ characters. Your city is seeded on first sign-in.
+Burg is **invite-only**: `enable_signup` is off, so the Create account form
+refuses and says so. Make yourself an account through the seeder instead, which
+uses the admin API and is unaffected:
+
+```bash
+npm run seed -- you@example.com --create
+```
+
+Then sign in with the password it prints. Your city is seeded on first sign-in.
 
 Password is the primary way in. There are two other options, both with caveats
 worth knowing:
@@ -79,15 +86,15 @@ worth knowing:
   never leaves your machine: it lands in Inbucket at http://127.0.0.1:54324.
 - **Continue with Google.** Needs the provider configured in Supabase.
 
-Email confirmation is switched **off** on the hosted project, so creating an
-account signs you straight in with no email round trip. If you ever turn it
-back on, the form will say to check your email instead.
+Email confirmation is switched **on**, and public signup is **off**. The two go
+together: confirmation was disabled while anyone could sign up, because the
+built-in mail server allows only two messages an hour and a confirmation step
+made signup a coin flip. With signup closed nobody is waiting on that email, and
+confirmation being on means reopening signup later cannot hand out accounts for
+addresses nobody owns. **Configure real SMTP before reopening signup.**
 
-To seed a city for an address without using the UI:
-
-```bash
-npm run seed -- you@example.com --create
-```
+Both settings live in `supabase/config.toml` as well, matching the hosted
+project, so a stray `supabase config push` cannot silently reopen the door.
 
 ### 5. Reset when you want a clean slate
 
@@ -201,7 +208,8 @@ npx tsx scripts/check-board.ts <board-id>       # notes, modes, promotion
 npx tsx scripts/check-build.ts                  # build mode, districts, regions
 npx tsx scripts/check-roads.ts                  # solving, gates, LOD, paving
 npx tsx scripts/check-life.ts                   # day/night, ticker, ⌘K
-npx tsx scripts/check-auth.ts                   # password, sign out, link shapes
+npx tsx scripts/check-auth.ts                   # password, sign out, link shapes,
+                                                #   closed signup, invited accounts
 npx tsx scripts/check-studio.ts                 # whiteboard tools and saving
 npx tsx scripts/check-a11y.ts                   # axe, normal + reduced motion
 npx tsx scripts/check-demolish.ts               # demolish, dissolve, start fresh

@@ -74,7 +74,9 @@ const fresh = async (): Promise<BrowserContext> => {
   await ctx.close();
 }
 
-// --- creating an account -------------------------------------------------
+// --- signups are closed --------------------------------------------------
+// The project is invite-only: `disable_signup` is on, so the public form must
+// refuse in words a person can act on, and must not leave an account behind.
 {
   const ctx = await fresh();
   const page = await ctx.newPage();
@@ -86,20 +88,59 @@ const fresh = async (): Promise<BrowserContext> => {
   await page.fill("#email", newEmail);
   await page.fill("#password", "a-brand-new-password");
   await page.getByRole("button", { name: /^create account$/i }).last().click();
-  await page.waitForURL(/\/city/, { timeout: 25000 }).catch(() => {});
+  await page.waitForTimeout(3000);
 
-  check("creating an account signs straight in, with no email step", /\/city/.test(page.url()), page.url());
+  check("creating an account does not get in", !/\/city/.test(page.url()), page.url());
+
+  const alert = await page.locator('[role="alert"]').first().innerText().catch(() => "");
+  check("the refusal reads like a decision, not a server error",
+    /closed/i.test(alert) && !/instance/i.test(alert), alert.trim().slice(0, 80));
 
   const { data: made } = await admin.auth.admin.listUsers({ perPage: 1000 });
   const created = made.users.find((u) => u.email === newEmail);
-  check("the new account is confirmed on the spot", !!created?.email_confirmed_at,
-    created?.email_confirmed_at ?? "not confirmed");
+  check("no account is left behind", !created, created ? "one was created" : "none");
+  if (created) await admin.auth.admin.deleteUser(created.id);
 
-  if (created) {
+  // A magic link is a way back in, not a side door around the closed form.
+  await page.fill("#email", `nobody+${Date.now()}@burg.local`);
+  await page.getByRole("button", { name: /email me a link/i }).click();
+  await page.waitForTimeout(2500);
+  const linkAlert = await page.locator('[role="alert"]').first().innerText().catch(() => "");
+  check("a link to an unknown address is refused too",
+    /no account|rate limit/i.test(linkAlert), linkAlert.trim().slice(0, 80));
+
+  const { data: after } = await admin.auth.admin.listUsers({ perPage: 1000 });
+  check("and creates no account either",
+    !after.users.some((u) => (u.email ?? "").startsWith("nobody+")));
+
+  await ctx.close();
+}
+
+// --- an invited account still works --------------------------------------
+// Closing the public door must not break the one the seeder and the admin API
+// come through, which is how every real account here is made.
+{
+  const invitedEmail = `invited+${Date.now()}@burg.local`;
+  const { data: invited } = await admin.auth.admin.createUser({
+    email: invitedEmail, password: "an-invited-password", email_confirm: true,
+  });
+  check("an account can still be created by an admin", !!invited.user, invitedEmail);
+
+  const ctx = await fresh();
+  const page = await ctx.newPage();
+  page.on("pageerror", (e) => errors.push(String(e)));
+  await page.goto("http://localhost:3000/sign-in", { waitUntil: "networkidle" });
+  await page.fill("#email", invitedEmail);
+  await page.fill("#password", "an-invited-password");
+  await page.getByRole("button", { name: /^sign in$/i }).last().click();
+  await page.waitForURL(/\/city/, { timeout: 25000 }).catch(() => {});
+  check("an invited account signs in", /\/city/.test(page.url()), page.url());
+
+  if (invited.user) {
     const { count } = await admin
-      .from("cities").select("id", { count: "exact", head: true }).eq("owner_id", created.id);
-    check("a new account gets its own city", (count ?? 0) === 1, `${count} cities`);
-    await admin.auth.admin.deleteUser(created.id);
+      .from("cities").select("id", { count: "exact", head: true }).eq("owner_id", invited.user.id);
+    check("and gets its own city on first sign-in", (count ?? 0) === 1, `${count} cities`);
+    await admin.auth.admin.deleteUser(invited.user.id);
   }
   await ctx.close();
 }

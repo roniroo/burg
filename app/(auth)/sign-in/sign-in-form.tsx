@@ -54,14 +54,19 @@ export function SignInForm({ next, initialError }: { next?: string; initialError
     const supabase = createClient();
     const { error: otpError } = await supabase.auth.signInWithOtp({
       email: email.trim(),
-      options: { emailRedirectTo: redirectTo },
+      // A link is a way back in, never a way to sign up. Left at the default
+      // this quietly creates an account for any address typed here, which is
+      // exactly what closing signups is meant to prevent.
+      options: { emailRedirectTo: redirectTo, shouldCreateUser: false },
     });
 
     if (otpError) {
       setError(
         /rate limit/i.test(otpError.message)
           ? "Supabase's built-in mail server only allows a few messages an hour, and that is used up. Use your password instead."
-          : otpError.message,
+          : /signups? not allowed|signup is disabled|user not found/i.test(otpError.message)
+            ? "No account here uses that address."
+            : otpError.message,
       );
       return;
     }

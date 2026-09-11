@@ -66,7 +66,9 @@ hidden.
 
 ## Deploying
 
-Live at **https://burg-30n7.onrender.com**.
+Live at **https://burg-30n7.onrender.com**. Invite-only: public signup is off,
+so accounts are made with `npm run seed -- <email> --create`, which goes through
+the admin API.
 
 `render.yaml` describes the service: one Node web service on Render, auto-deployed
 from `main`. Set `NEXT_PUBLIC_SUPABASE_URL` and
