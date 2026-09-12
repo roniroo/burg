@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../lib/database.types";
+import { until, untilCount } from "./until";
 
 config({ path: ".env.local" });
 const admin = createClient<Database>(
@@ -68,12 +69,12 @@ await page.waitForSelector('[role="listbox"]', { timeout: 3000 });
 const slashCount = await page.locator('[role="option"]').count();
 check("slash menu opens with block types", slashCount > 6, `${slashCount} items`);
 await page.keyboard.type("quote");
-await page.waitForTimeout(300);
+await untilCount(page.locator('[role="option"]'), (n) => n === 1);
 const filtered = await page.locator('[role="option"]').allInnerTexts();
 check("slash menu filters on the query", filtered.length === 1 && /Quote/.test(filtered[0] ?? ""), filtered.join(", "));
 await page.keyboard.press("Enter");
-await page.waitForTimeout(300);
-check("slash menu inserts the block", (await page.locator(".ProseMirror blockquote").count()) > 0);
+const quotes = await untilCount(page.locator(".ProseMirror blockquote"), (n) => n > 0);
+check("slash menu inserts the block", quotes > 0, `${quotes} blockquotes`);
 await page.keyboard.press("Escape");
 
 // --- [[ building picker -------------------------------------------------
@@ -89,21 +90,31 @@ const pickerItems = await page.locator('[role="option"]').allInnerTexts();
 check("[[ opens the building picker", pickerItems.length > 0, pickerItems.slice(0, 3).join(" | "));
 
 await page.keyboard.type("Recipes");
-await page.waitForTimeout(400);
+await until(
+  () => page.locator('[role="option"]').allInnerTexts(),
+  (items) => items.some((t) => /Recipes/.test(t)),
+);
 const recipeItems = await page.locator('[role="option"]').allInnerTexts();
 check("picker filters to the typed building", recipeItems.some((t) => /Recipes/.test(t)), recipeItems.join(" | "));
 await page.keyboard.press("Enter");
-await page.waitForTimeout(400);
+const chips = await untilCount(page.locator("[data-building-link]"), (n) => n > 0);
 
-check("a building-link chip is inserted", (await page.locator("[data-building-link]").count()) > 0);
+check("a building-link chip is inserted", chips > 0, `${chips} chips`);
 await page.locator('[role="status"]').first().filter({ hasText: /Saved|Not saved/ }).waitFor({ timeout: 15000 }).catch(() => {});
-await page.waitForTimeout(900);
 
-const { data: linksAfter } = await admin
-  .from("building_links")
-  .select("target_building_id")
-  .eq("source_building_id", docId)
-  .eq("link_type", "wiki");
+// "Saved" is the editor's own claim; the link row is what was actually
+// wanted, and the trigger that writes it runs after the document save.
+const linksAfter = await until(
+  async () =>
+    (
+      await admin
+        .from("building_links")
+        .select("target_building_id")
+        .eq("source_building_id", docId)
+        .eq("link_type", "wiki")
+    ).data,
+  (rows) => (rows ?? []).some((r) => r.target_building_id === recipesRow!.id),
+);
 
 const targets = (linksAfter ?? []).map((r) => r.target_building_id);
 check(

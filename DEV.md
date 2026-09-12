@@ -188,6 +188,28 @@ seeded data — promotion turns a note into a building, for one. It is
 destructive to the demo city and nothing else: the reseed and every suite are
 scoped to `seedtest@burg.local`.
 
+**No suite sleeps.** There is not a single `waitForTimeout` left in
+`scripts/check-*.ts`, and adding one back is how a suite starts failing for
+reasons that have nothing to do with the code under test. A duration long
+enough on an idle laptop is not long enough when a dev server, a production
+build and fifteen suites are competing for the same cores. `scripts/until.ts`
+is the whole answer: `until` polls any read until a predicate accepts it, and
+`untilCount` / `untilText` / `untilAttribute` do the same for a locator. They
+return the **last value read** rather than throwing, which is the point --
+a genuine failure still prints a FAIL line with the value that was actually
+there, where Playwright's own retrying assertions would end the script.
+
+Two traps worth knowing, because both produced real flakes here:
+
+- **Wait for the last write, not the first.** `createNeighborhood` inserts the
+  district and *then* tints its ground; waiting for the district row and
+  reading the tiles is a race. Promotion removes a note and adds a building.
+  Start fresh is a cascade.
+- **The database moving is not the page moving.** Waiting for a row to appear
+  and then asserting on rendered text races the revalidation. Either wait for
+  the page too, or -- better -- wait for the two to *agree*, which is what the
+  demolish bar's building count does.
+
 **The cookie is re-minted mid-run, and it has to be.** Changing a password
 revokes every refresh token for that user, and `check-legal` deliberately
 changes the smoke user's password to exercise the reset flow — then changes it

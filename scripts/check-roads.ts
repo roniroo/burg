@@ -5,6 +5,7 @@ import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../lib/database.types";
 import { smokeCity } from "./smoke-city";
+import { until, untilCount } from "./until";
 
 config({ path: ".env.local", quiet: true });
 const admin = createClient<Database>(
@@ -38,12 +39,21 @@ const city = await smokeCity(admin);
 
 // Opening the map drains the stale queue.
 await page.goto("http://localhost:3000/city", { waitUntil: "networkidle" });
-await page.waitForTimeout(3500);
 
-const { data: routes } = await admin
-  .from("road_routes")
-  .select("id, scope, tier, link_count, stale, path, a_gate_id, b_gate_id")
-  .eq("city_id", city.id);
+// Only an open map drains the queue, and how long that takes depends on how
+// many routes are stale and how busy the machine is. Wait for the queue to be
+// empty rather than for a number of seconds that was picked once.
+const routes = await until(
+  async () =>
+    (
+      await admin
+        .from("road_routes")
+        .select("id, scope, tier, link_count, stale, path, a_gate_id, b_gate_id")
+        .eq("city_id", city.id)
+    ).data,
+  (rows) => (rows ?? []).length > 0 && (rows ?? []).every((r) => !r.stale),
+  { timeoutMs: 30000 },
+);
 
 check("every route was solved", (routes ?? []).every((r) => !r.stale), 
   `${(routes ?? []).filter((r) => r.stale).length} still stale`);
@@ -78,7 +88,11 @@ check("tier matches link count on every route", tierOk);
 const before = JSON.stringify((routes ?? []).map((r) => r.path));
 await admin.from("road_routes").update({ stale: true }).eq("city_id", city.id);
 await page.reload({ waitUntil: "networkidle" });
-await page.waitForTimeout(3500);
+await until(
+  async () => (await admin.from("road_routes").select("stale").eq("city_id", city.id)).data,
+  (rows) => (rows ?? []).length > 0 && (rows ?? []).every((r) => !r.stale),
+  { timeoutMs: 30000 },
+);
 const { data: resolved } = await admin.from("road_routes").select("id, path").eq("city_id", city.id).order("id");
 const { data: originalOrder } = await admin.from("road_routes").select("id").eq("city_id", city.id).order("id");
 void originalOrder;
@@ -88,41 +102,39 @@ check("re-solving produces identical paths", before.length > 0 && after.length >
 
 // --- zoom level of detail ------------------------------------------------
 await page.reload({ waitUntil: "networkidle" });
-await page.waitForTimeout(2500);
 const roadHandles = page.locator("[data-road]");
+await untilCount(roadHandles, (n) => n > 0);
 const atCityZoom = await roadHandles.count();
 check("city zoom shows only highways", atCityZoom === highways.length, `${atCityZoom} roads, ${highways.length} highways`);
 
 await page.locator('[role="application"]').focus();
 await page.keyboard.press("+");
-await page.waitForTimeout(400);
-const atNeighbourhoodZoom = await roadHandles.count();
+const atNeighbourhoodZoom = await untilCount(roadHandles, (n) => n > atCityZoom);
 check("zooming in reveals streets", atNeighbourhoodZoom > atCityZoom,
   `${atCityZoom} -> ${atNeighbourhoodZoom}`);
 await page.screenshot({ path: "scripts/shots/roads-zoomed.png" });
 
 // --- hover and the connections panel -------------------------------------
 await page.keyboard.press("-");
-await page.waitForTimeout(400);
+await untilCount(roadHandles, (n) => n === atCityZoom);
 const firstRoad = roadHandles.first();
 const label = await firstRoad.getAttribute("aria-label");
 check("a road is labelled with both ends and its count", /↔.+connection/.test(label ?? ""), label ?? "");
 
 await firstRoad.hover();
-await page.waitForTimeout(300);
 await page.screenshot({ path: "scripts/shots/roads-hover.png" });
 
 await firstRoad.click();
-await page.waitForTimeout(400);
 const panel = page.locator('[role="dialog"][aria-label^="Connections"]');
-check("clicking a road opens the connections panel", (await panel.count()) === 1);
+const panels = await untilCount(panel, (n) => n === 1);
+check("clicking a road opens the connections panel", panels === 1, `${panels} panels`);
 const rows = await panel.locator("li").count();
 check("the panel lists the links the road carries", rows > 0, `${rows} links`);
 await page.screenshot({ path: "scripts/shots/roads-panel.png" });
 
 await page.keyboard.press("Escape");
-await page.waitForTimeout(300);
-check("Escape closes the panel", (await panel.count()) === 0);
+const closed = await untilCount(panel, (n) => n === 0);
+check("Escape closes the panel", closed === 0, `${closed} panels`);
 
 
 // --- the paving ceremony -------------------------------------------------
@@ -149,7 +161,11 @@ if (first && second) {
   check("creating a link marks a route stale", (staleNow ?? []).some((r) => r.stale));
 
   await page.goto("http://localhost:3000/city", { waitUntil: "networkidle" });
-  await page.waitForTimeout(4000);
+  await until(
+    async () => (await admin.from("road_routes").select("stale").eq("city_id", city.id)).data,
+    (rows) => (rows ?? []).every((r) => !r.stale),
+    { timeoutMs: 30000 },
+  );
 
   const routesAfter = (await admin.from("road_routes").select("id, stale", { count: "exact" }).eq("city_id", city.id));
   check("the map solves the new route", (routesAfter.data ?? []).every((r) => !r.stale),
@@ -170,12 +186,18 @@ if (first && second) {
     String(weathering?.link_count));
 
   await page.goto("http://localhost:3000/city", { waitUntil: "networkidle" });
-  await page.waitForTimeout(3500);
-  const { data: swept } = await admin
-    .from("road_routes").select("id")
-    .eq("a_building_id", first.id < second.id ? first.id : second.id)
-    .eq("b_building_id", first.id < second.id ? second.id : first.id)
-    .maybeSingle();
+  const swept = await until(
+    async () =>
+      (
+        await admin
+          .from("road_routes").select("id")
+          .eq("a_building_id", first.id < second.id ? first.id : second.id)
+          .eq("b_building_id", first.id < second.id ? second.id : first.id)
+          .maybeSingle()
+      ).data,
+    (row) => row === null,
+    { timeoutMs: 30000 },
+  );
   check("the weathered road is swept up on the next pass", swept === null);
 }
 

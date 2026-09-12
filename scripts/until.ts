@@ -10,6 +10,10 @@
  * thing you are actually waiting for.
  */
 
+import type { Locator } from "playwright";
+
+type Options = { timeoutMs?: number; intervalMs?: number };
+
 /** Poll `read` until `ok` accepts its result. Returns the last value read. */
 export async function until<T>(
   read: () => Promise<T>,
@@ -23,4 +27,55 @@ export async function until<T>(
     last = await read();
   }
   return last;
+}
+
+/**
+ * The DOM-shaped wrappers.
+ *
+ * These return the last value rather than throwing, which is the whole point:
+ * a suite asserts on what came back, so a genuine failure still prints a FAIL
+ * line with the value that was actually there. Playwright's own retrying
+ * assertions throw instead, which ends the script and prints nothing.
+ */
+
+/** Poll a locator's count. */
+export async function untilCount(
+  locator: Locator,
+  ok: (count: number) => boolean,
+  options?: Options,
+): Promise<number> {
+  return until(() => locator.count(), ok, options);
+}
+
+/**
+ * Poll a locator's text.
+ *
+ * Reads "" while the element does not exist yet, so waiting for text to appear
+ * and waiting for an element to appear are the same call.
+ */
+export async function untilText(
+  locator: Locator,
+  ok: (text: string) => boolean,
+  options?: Options,
+): Promise<string> {
+  return until(
+    async () => ((await locator.count()) > 0 ? locator.innerText().catch(() => "") : ""),
+    ok,
+    options,
+  );
+}
+
+/** Poll an attribute's value, "" when the element or attribute is absent. */
+export async function untilAttribute(
+  locator: Locator,
+  name: string,
+  ok: (value: string) => boolean,
+  options?: Options,
+): Promise<string> {
+  return until(
+    async () =>
+      (await locator.count()) > 0 ? ((await locator.getAttribute(name).catch(() => "")) ?? "") : "",
+    ok,
+    options,
+  );
 }

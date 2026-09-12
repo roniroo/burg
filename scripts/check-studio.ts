@@ -6,6 +6,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../lib/database.types";
 import { smokeCity } from "./smoke-city";
 import { spriteFootprint } from "../lib/sprites";
+import { until, untilCount } from "./until";
 
 config({ path: ".env.local", quiet: true });
 const admin = createClient<Database>(
@@ -87,16 +88,32 @@ check("it offers exactly the five drawing tools plus select",
 const box = await board.boundingBox();
 const at = (dx: number, dy: number) => ({ x: box!.x + dx, y: box!.y + dy });
 
+type Node = { kind: string; x: number; y: number; w: number; h: number; id: string };
+type Scene = { nodes: Node[] };
+
+/**
+ * The scene, once it says what we are waiting for.
+ *
+ * Every assertion below is about the autosaved scene, and autosave is
+ * debounced and then goes to the server: 1600ms was a guess at the sum of
+ * both, repeated eight times.
+ */
+const sceneWhen = async (ok: (scene: Scene) => boolean): Promise<Scene> =>
+  until(
+    async () =>
+      ((await admin.from("canvases").select("scene").eq("building_id", studioId).single()).data!
+        .scene as unknown as Scene),
+    ok,
+  );
+
 // --- draw a rectangle ----------------------------------------------------
 await page.getByRole("radio", { name: /rectangle/i }).click();
 await page.mouse.move(at(120, 120).x, at(120, 120).y);
 await page.mouse.down();
 await page.mouse.move(at(280, 240).x, at(280, 240).y, { steps: 6 });
 await page.mouse.up();
-await page.waitForTimeout(1600);
 
-let { data: canvas } = await admin.from("canvases").select("scene").eq("building_id", studioId).single();
-let scene = canvas!.scene as { nodes: Array<{ kind: string; x: number; y: number; w: number; h: number; id: string }> };
+let scene = await sceneWhen((sc) => sc.nodes.length === 1);
 check("drawing a rectangle stores a node", scene.nodes.length === 1, `${scene.nodes.length} nodes`);
 check("the node is a rectangle", scene.nodes[0]?.kind === "rect", scene.nodes[0]?.kind ?? "");
 check("its origin sits on the 8px grid", scene.nodes[0]!.x % 8 === 0 && scene.nodes[0]!.y % 8 === 0,
@@ -109,12 +126,14 @@ await page.getByRole("radio", { name: /sticky/i }).click();
 await page.mouse.move(at(500, 120).x, at(500, 120).y);
 await page.mouse.down();
 await page.mouse.up();
-await page.waitForTimeout(600);
+await untilCount(page.locator('textarea[aria-label="Sticky text"]'), (n) => n > 0);
 await page.locator('textarea[aria-label="Sticky text"]').first().fill("shape of an idea");
-await page.waitForTimeout(1600);
 
-({ data: canvas } = await admin.from("canvases").select("scene").eq("building_id", studioId).single());
-scene = canvas!.scene as typeof scene;
+scene = await sceneWhen((sc) =>
+  (sc.nodes as Array<{ kind: string; text?: string }>).some(
+    (n) => n.kind === "sticky" && n.text === "shape of an idea",
+  ),
+);
 const sticky = (scene.nodes as Array<{ kind: string; text?: string }>).find((n) => n.kind === "sticky");
 check("a sticky stores its text", sticky?.text === "shape of an idea", sticky?.text ?? "");
 
@@ -124,10 +143,12 @@ await page.mouse.move(at(150, 340).x, at(150, 340).y);
 await page.mouse.down();
 for (let i = 0; i < 8; i++) await page.mouse.move(at(150 + i * 20, 340 + (i % 3) * 12).x, at(150 + i * 20, 340 + (i % 3) * 12).y);
 await page.mouse.up();
-await page.waitForTimeout(1600);
 
-({ data: canvas } = await admin.from("canvases").select("scene").eq("building_id", studioId).single());
-scene = canvas!.scene as typeof scene;
+scene = await sceneWhen((sc) =>
+  (sc.nodes as Array<{ kind: string; points?: unknown[] }>).some(
+    (n) => n.kind === "pen" && (n.points?.length ?? 0) > 3,
+  ),
+);
 const pen = (scene.nodes as Array<{ kind: string; points?: unknown[] }>).find((n) => n.kind === "pen");
 check("a pen stroke stores its points", (pen?.points?.length ?? 0) > 3, `${pen?.points?.length ?? 0} points`);
 
@@ -140,26 +161,21 @@ await page.mouse.move(at(180, 160).x, at(180, 160).y);
 await page.mouse.down();
 await page.mouse.move(at(260, 200).x, at(260, 200).y, { steps: 6 });
 await page.mouse.up();
-await page.waitForTimeout(1600);
 
-({ data: canvas } = await admin.from("canvases").select("scene").eq("building_id", studioId).single());
-scene = canvas!.scene as typeof scene;
+scene = await sceneWhen((sc) => sc.nodes.some((n) => n.id === rectBefore.id && n.x !== rectBefore.x));
 const rectAfter = (scene.nodes as Array<{ kind: string; x: number; id: string }>).find((n) => n.id === rectBefore.id)!;
 check("selecting and dragging moves a node", rectAfter.x !== rectBefore.x, `${rectBefore.x} -> ${rectAfter.x}`);
 check("it stays on the grid after moving", rectAfter.x % 8 === 0);
 
 const countBefore = scene.nodes.length;
 await page.keyboard.press("Delete");
-await page.waitForTimeout(1600);
-({ data: canvas } = await admin.from("canvases").select("scene").eq("building_id", studioId).single());
-scene = canvas!.scene as typeof scene;
+scene = await sceneWhen((sc) => sc.nodes.length === countBefore - 1);
 check("Delete removes the selected node", scene.nodes.length === countBefore - 1,
   `${countBefore} -> ${scene.nodes.length}`);
 
 // --- reload --------------------------------------------------------------
 await page.reload({ waitUntil: "networkidle" });
-await page.waitForTimeout(800);
-const drawn = await page.locator("[data-studio] .absolute.border-2").count();
+const drawn = await untilCount(page.locator("[data-studio] .absolute.border-2"), (n) => n >= 1);
 check("the scene survives a reload", drawn >= 1, `${drawn} shapes`);
 
 // --- a malformed scene must still open -----------------------------------
@@ -167,8 +183,8 @@ await admin.from("canvases").update({
   scene: { nodes: [{ id: "ok", kind: "rect", x: 0, y: 0, w: 40, h: 40 }, { kind: "broken" }, 7], viewport: { zoom: 99 } },
 }).eq("building_id", studioId);
 await page.reload({ waitUntil: "networkidle" });
-await page.waitForTimeout(600);
-check("a malformed node does not stop the board opening", (await page.locator("[data-studio]").count()) === 1);
+const opened = await untilCount(page.locator("[data-studio]"), (n) => n === 1);
+check("a malformed node does not stop the board opening", opened === 1, `${opened} studios`);
 check("the bad node is dropped, the good one kept",
   (await page.locator("[data-studio] .absolute.border-2").count()) === 1,
   `${await page.locator("[data-studio] .absolute.border-2").count()} shapes`);

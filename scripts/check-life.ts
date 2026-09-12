@@ -1,6 +1,7 @@
 /** Phase 6: day/night, ambient loops, the ticker, and the command palette. */
 import { chromium } from "playwright";
 import { readFileSync } from "node:fs";
+import { untilCount } from "./until";
 
 const cookieLine = readFileSync("/tmp/burg-cookie.txt", "utf-8").trim();
 const eq = cookieLine.indexOf("=");
@@ -40,7 +41,7 @@ async function openCity(reduced: boolean, clockHour?: number) {
   }
 
   await page.goto("http://localhost:3000/city", { waitUntil: "networkidle" });
-  await page.waitForTimeout(1200);
+  await untilCount(page.locator("[data-building]"), (n) => n > 0);
   return { context, page };
 }
 
@@ -106,9 +107,9 @@ async function openCity(reduced: boolean, clockHour?: number) {
 {
   const { context, page } = await openCity(false, 12);
   await page.keyboard.press("ControlOrMeta+k");
-  await page.waitForTimeout(400);
   const dialog = page.locator('[cmdk-dialog]');
-  check("cmd-K opens the palette", (await dialog.count()) === 1);
+  const opened = await untilCount(dialog, (n) => n === 1);
+  check("cmd-K opens the palette", opened === 1, `${opened} dialogs`);
 
   await page.keyboard.type("roadmap");
 
@@ -142,11 +143,12 @@ async function openCity(reduced: boolean, clockHour?: number) {
 {
   const { context, page } = await openCity(false, 12);
   await page.keyboard.press("ControlOrMeta+k");
-  await page.waitForTimeout(300);
+  await untilCount(page.locator("[cmdk-dialog]"), (n) => n === 1);
   await page.keyboard.type("zzzzz nothing here zzzzz");
-  await page.waitForTimeout(900);
-  const empty = await page.locator("[cmdk-empty]").count();
-  check("an empty search says so rather than hanging", empty === 1);
+  // The search is debounced and then goes to the server, so the empty state
+  // is the thing to wait for.
+  const empty = await untilCount(page.locator("[cmdk-empty]"), (n) => n === 1);
+  check("an empty search says so rather than hanging", empty === 1, `${empty} empty states`);
   await context.close();
 }
 

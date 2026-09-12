@@ -1,6 +1,7 @@
 /** Phase 1 interaction checks: keyboard nav, zoom, hover, enter, focus. */
 import { chromium } from "playwright";
 import { readFileSync } from "node:fs";
+import { until, untilCount, untilText } from "./until";
 
 const cookieLine = readFileSync("/tmp/burg-cookie.txt", "utf-8").trim();
 const eq = cookieLine.indexOf("=");
@@ -14,7 +15,7 @@ const errors: string[] = [];
 page.on("pageerror", (e) => errors.push(String(e)));
 
 await page.goto("http://localhost:3000/city", { waitUntil: "networkidle" });
-await page.waitForTimeout(500);
+await untilCount(page.locator("[data-building]"), (n) => n > 0);
 
 const results: string[] = [];
 const check = (name: string, pass: boolean, detail = "") =>
@@ -32,8 +33,8 @@ await app.focus();
 const cursorCount = async () => page.locator('polygon[stroke="var(--color-gold)"]').count();
 check("no tile cursor before arrow keys", (await cursorCount()) === 0);
 await page.keyboard.press("ArrowRight");
-await page.waitForTimeout(120);
-check("arrow key raises a tile cursor", (await cursorCount()) === 1);
+const raised = await until(cursorCount, (n) => n === 1);
+check("arrow key raises a tile cursor", raised === 1, `${raised} cursors`);
 
 // Moving right then left should return to the starting tile.
 const cursorTile = async () => {
@@ -43,26 +44,26 @@ const cursorTile = async () => {
 };
 const afterRight = await cursorTile();
 await page.keyboard.press("ArrowLeft");
-await page.waitForTimeout(120);
+await until(cursorTile, (t) => t !== afterRight);
 await page.keyboard.press("ArrowRight");
-await page.waitForTimeout(120);
-check("arrow movement is reversible", (await cursorTile()) === afterRight, `${afterRight} -> ${await cursorTile()}`);
+const backAgain = await until(cursorTile, (t) => t === afterRight);
+check("arrow movement is reversible", backAgain === afterRight, `${afterRight} -> ${backAgain}`);
 
 // --- zoom ladder ---------------------------------------------------------
 const zoomBadge = page.locator("text=/^\\d×$/").first();
 check("starts at 1x", (await zoomBadge.textContent())?.trim() === "1×");
 await page.keyboard.press("+");
-await page.waitForTimeout(200);
-check("plus steps to 2x", (await zoomBadge.textContent())?.trim() === "2×");
+const atTwo = await untilText(zoomBadge, (t) => t.trim() === "2×");
+check("plus steps to 2x", atTwo.trim() === "2×", atTwo.trim());
 await page.keyboard.press("+");
 await page.keyboard.press("+");
-await page.waitForTimeout(200);
-check("zoom clamps at 3x", (await zoomBadge.textContent())?.trim() === "3×");
+const atThree = await untilText(zoomBadge, (t) => t.trim() === "3×");
+check("zoom clamps at 3x", atThree.trim() === "3×", atThree.trim());
 await page.screenshot({ path: "scripts/shots/city-3x.png" });
 await page.keyboard.press("-");
 await page.keyboard.press("-");
-await page.waitForTimeout(200);
-check("minus steps back to 1x", (await zoomBadge.textContent())?.trim() === "1×");
+const backToOne = await untilText(zoomBadge, (t) => t.trim() === "1×");
+check("minus steps back to 1x", backToOne.trim() === "1×", backToOne.trim());
 
 // transform must land on whole pixels
 const transform = await page.locator("[data-world]").first().evaluate((el) => getComputedStyle(el).transform);
@@ -73,9 +74,9 @@ check("camera transform is pixel-snapped", translates.every((n) => Number.isInte
 // --- hover raises the label plate ---------------------------------------
 const target = buttons.nth(0);
 await target.hover();
-await page.waitForTimeout(200);
 const plate = target.locator("span").last();
-check("hover reveals the title plate", await plate.isVisible());
+const plateShown = await until(() => plate.isVisible(), (v) => v);
+check("hover reveals the title plate", plateShown);
 await page.screenshot({ path: "scripts/shots/city-hover.png" });
 
 // --- focus ring ----------------------------------------------------------

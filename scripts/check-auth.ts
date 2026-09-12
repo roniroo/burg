@@ -3,6 +3,7 @@ import { chromium, type BrowserContext } from "playwright";
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../lib/database.types";
+import { until, untilText } from "./until";
 
 config({ path: ".env.local", quiet: true });
 const admin = createClient<Database>(
@@ -47,10 +48,9 @@ const fresh = async (): Promise<BrowserContext> => {
   await page.fill("#email", EMAIL);
   await page.fill("#password", "definitely-the-wrong-one");
   await page.getByRole("button", { name: /^sign in$/i }).last().click();
-  await page.waitForTimeout(2500);
   // Several elements carry role=alert (the dev overlay adds one), so take
   // the first rather than tripping strict mode.
-  const alert = (await page.locator('[role="alert"]').first().innerText().catch(() => "")).trim();
+  const alert = (await untilText(page.locator('[role="alert"]').first(), (t) => t.trim().length > 0)).trim();
   check("a wrong password is refused with a message", /invalid/i.test(alert), alert.trim().slice(0, 60));
 
   await page.fill("#password", PASSWORD);
@@ -88,7 +88,10 @@ const fresh = async (): Promise<BrowserContext> => {
   await page.fill("#email", newEmail);
   await page.fill("#password", "a-brand-new-password");
   await page.getByRole("button", { name: /^create account$/i }).last().click();
-  await page.waitForTimeout(3000);
+  // The door is closed, so the tell is a refusal on the page rather than a
+  // navigation. Wait for the message; if one never comes the URL check below
+  // still fails honestly.
+  await untilText(page.locator("body"), (t) => /closed|refus|already have/i.test(t));
 
   check("creating an account does not get in", !/\/city/.test(page.url()), page.url());
 
@@ -104,8 +107,7 @@ const fresh = async (): Promise<BrowserContext> => {
   // A magic link is a way back in, not a side door around the closed form.
   await page.fill("#email", `nobody+${Date.now()}@burg.local`);
   await page.getByRole("button", { name: /email me a link/i }).click();
-  await page.waitForTimeout(2500);
-  const linkAlert = await page.locator('[role="alert"]').first().innerText().catch(() => "");
+  const linkAlert = await untilText(page.locator('[role="alert"]').first(), (t) => /no account|rate limit/i.test(t));
   check("a link to an unknown address is refused too",
     /no account|rate limit/i.test(linkAlert), linkAlert.trim().slice(0, 80));
 
@@ -205,8 +207,9 @@ const fresh = async (): Promise<BrowserContext> => {
   await page.fill("#email", EMAIL);
   await page.fill("#password", PASSWORD);
   await page.getByRole("button", { name: /^sign in$/i }).last().click();
-  await page.waitForTimeout(3000);
-  check("an off-site next= is ignored", !/example\.com/.test(page.url()), page.url());
+  // Signing in lands somewhere; the assertion is that it is not off-site.
+  const landed = await until(() => Promise.resolve(page.url()), (u) => !/\/sign-in/.test(u));
+  check("an off-site next= is ignored", !/example\.com/.test(landed), landed);
   await ctx.close();
 }
 

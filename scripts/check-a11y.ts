@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../lib/database.types";
+import { untilCount } from "./until";
 
 config({ path: ".env.local", quiet: true });
 const admin = createClient<Database>(
@@ -44,7 +45,10 @@ for (const reduced of [false, true]) {
 
   for (const path of ROUTES) {
     await page.goto(`http://localhost:3000${path}`, { waitUntil: "networkidle" });
-    await page.waitForTimeout(400);
+    // Axe must not scan a half-built page. Every route in the list renders a
+    // heading, so that is the thing to wait for rather than a guess at how
+    // long the slowest of them takes.
+    await untilCount(page.locator("h1, h2"), (n) => n > 0);
 
     const results = await new AxeBuilder({ page })
       .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
@@ -65,7 +69,7 @@ for (const reduced of [false, true]) {
   if (reduced) {
     // Under reduced motion the camera must cut, not animate.
     await page.goto("http://localhost:3000/city", { waitUntil: "networkidle" });
-    await page.waitForTimeout(300);
+    await untilCount(page.locator("[data-world]"), (n) => n > 0);
     const world = page.locator("[data-world]").first();
     // The global stylesheet clamps every transition to 0.001ms, so the
     // computed duration is always effectively zero. The meaningful check is

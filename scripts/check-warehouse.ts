@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../lib/database.types";
-import { until } from "./until";
+import { until, untilCount } from "./until";
 
 config({ path: ".env.local", quiet: true });
 const admin = createClient<Database>(
@@ -67,15 +67,20 @@ check("Enter opens the cell editor", true);
 
 await page.keyboard.type(probe);
 await page.keyboard.press("Enter");
-await page.waitForTimeout(1500);
 
-const { data: edited } = await admin
-  .from("table_rows")
-  .select("data, search_text")
-  .eq("building_id", buildingId)
-  .order("position")
-  .limit(1)
-  .single();
+const edited = await until(
+  async () =>
+    (
+      await admin
+        .from("table_rows")
+        .select("data, search_text")
+        .eq("building_id", buildingId)
+        .order("position")
+        .limit(1)
+        .single()
+    ).data,
+  (row) => row?.search_text === probe,
+);
 const values = Object.values((edited?.data ?? {}) as Record<string, unknown>);
 check("edit persists to the database", values.includes(probe), JSON.stringify(values.slice(0, 2)));
 check("primary field mirrors into search_text", edited?.search_text === probe, edited?.search_text ?? "");
@@ -86,7 +91,10 @@ await page.keyboard.press("Enter");
 await page.waitForSelector('[role="gridcell"] input');
 await page.keyboard.type("DISCARD ME");
 await page.keyboard.press("Escape");
-await page.waitForTimeout(1200);
+// Nothing should be written, so there is no new state to wait for. The
+// editor closing is the observable effect; after that a single read is a
+// fair test of "and nothing was saved".
+await untilCount(page.locator('[role="gridcell"] input'), (n) => n === 0);
 const { data: afterEscape } = await admin
   .from("table_rows").select("search_text").eq("building_id", buildingId).order("position").limit(1).single();
 check("Escape abandons the edit", afterEscape?.search_text === probe, afterEscape?.search_text ?? "");
@@ -94,22 +102,24 @@ check("Escape abandons the edit", afterEscape?.search_text === probe, afterEscap
 // --- copy / paste --------------------------------------------------------
 await page.locator('[role="gridcell"]').first().click();
 await page.keyboard.press("ControlOrMeta+c");
-await page.waitForTimeout(300);
-const clip = await page.evaluate(() => navigator.clipboard.readText());
+const clip = await until(
+  () => page.evaluate(() => navigator.clipboard.readText()),
+  (text) => text.trim().length > 0,
+);
 check("copy puts the cell on the clipboard", clip.trim() === probe, clip.trim());
 
 // --- views ---------------------------------------------------------------
 await page.getByRole("tab", { name: /by status/i }).click();
-await page.waitForTimeout(500);
 const lanes = page.locator("section[aria-label]");
-check("board view renders a lane per choice", (await lanes.count()) >= 3, `${await lanes.count()} lanes`);
+const laneCount = await untilCount(lanes, (n) => n >= 3);
+check("board view renders a lane per choice", laneCount >= 3, `${laneCount} lanes`);
 const laneLabels = await lanes.evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")));
 check("lanes are labelled with their counts", laneLabels.every((l) => /\d+ items/.test(l ?? "")), laneLabels.join(" | "));
 await page.screenshot({ path: "scripts/shots/warehouse-board.png" });
 
 await page.getByRole("tab", { name: /all items/i }).click();
-await page.waitForTimeout(400);
-check("switching back restores the grid", (await page.locator('[role="grid"]').count()) === 1);
+const grids = await untilCount(page.locator('[role="grid"]'), (n) => n === 1);
+check("switching back restores the grid", grids === 1, `${grids} grids`);
 
 // --- row panel -----------------------------------------------------------
 await page.locator('button[aria-label^="Open row"]').first().click();
@@ -117,8 +127,8 @@ await page.waitForSelector('[role="dialog"]');
 check("row panel opens as a dialog", (await page.locator('[role="dialog"]').count()) === 1);
 await page.screenshot({ path: "scripts/shots/warehouse-row.png" });
 await page.keyboard.press("Escape");
-await page.waitForTimeout(300);
-check("Escape closes the row panel", (await page.locator('[role="dialog"]').count()) === 0);
+const dialogs = await untilCount(page.locator('[role="dialog"]'), (n) => n === 0);
+check("Escape closes the row panel", dialogs === 0, `${dialogs} dialogs`);
 
 // --- add a row -----------------------------------------------------------
 const beforeDom = await rowEls.count();
@@ -155,9 +165,9 @@ const { data: galleryView } = await admin
 
 await page.reload({ waitUntil: "networkidle" });
 await page.getByRole("tab", { name: /gallery check/i }).click();
-await page.waitForTimeout(500);
 const cards = page.locator("ul > li");
-check("gallery view renders a card per row", (await cards.count()) >= 12, `${await cards.count()} cards`);
+const cardCount = await untilCount(cards, (n) => n >= 12);
+check("gallery view renders a card per row", cardCount >= 12, `${cardCount} cards`);
 await page.screenshot({ path: "scripts/shots/warehouse-gallery.png" });
 if (galleryView) await admin.from("table_views").delete().eq("id", galleryView.id);
 

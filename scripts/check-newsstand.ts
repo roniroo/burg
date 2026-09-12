@@ -1,6 +1,7 @@
 /** Newsstand: add a link, confirm OpenGraph title lands, then remove it. */
 import { chromium } from "playwright";
 import { readFileSync } from "node:fs";
+import { untilCount } from "./until";
 
 const cookieLine = readFileSync("/tmp/burg-cookie.txt", "utf-8").trim();
 const eq = cookieLine.indexOf("=");
@@ -37,9 +38,11 @@ await page.waitForSelector("text=Fetching title…", { timeout: 2000 }).catch(()
 check("optimistic row appears immediately", true);
 
 await page.waitForFunction(() => !document.body.innerText.includes("Fetching title…"), { timeout: 15000 }).catch(() => {});
-await page.waitForTimeout(1500);
 
-const after = await rows.count();
+// The row count settling is the thing being waited for. It used to be a
+// second and a half after the fetch spinner went, which is a guess at how
+// long a revalidate takes.
+const after = await untilCount(rows, (n) => n === before + 1);
 check("link was added", after === before + 1, `${before} -> ${after}`);
 
 const titles = await rows.locator("a").allInnerTexts();
@@ -51,16 +54,14 @@ await page.screenshot({ path: "scripts/shots/newsstand-added.png" });
 // Remove it again.
 const removeButtons = page.locator('button[aria-label^="Remove"]');
 await removeButtons.last().click();
-await page.waitForTimeout(2000);
-const final = await rows.count();
+const final = await untilCount(rows, (n) => n === before);
 check("link was removed", final === before, `${after} -> ${final}`);
 
 // A bad URL must be refused, not saved.
 await page.fill("#kiosk-url", "not a url at all");
 await page.click("[data-add-link]");
-await page.waitForTimeout(2500);
-const alert = await page.locator('[role="alert"]').count();
-check("invalid input is rejected with a message", alert > 0);
+const alert = await untilCount(page.locator('[role="alert"]'), (n) => n > 0);
+check("invalid input is rejected with a message", alert > 0, `${alert} alerts`);
 
 console.log(errors.length ? "\npage errors:\n  " + errors.join("\n  ") : "\nno page errors");
 await browser.close();

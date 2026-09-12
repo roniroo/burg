@@ -5,6 +5,7 @@ import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../lib/database.types";
 import { smokeCity } from "./smoke-city";
+import { until, untilCount, untilText } from "./until";
 
 config({ path: ".env.local", quiet: true });
 const admin = createClient<Database>(
@@ -36,22 +37,21 @@ const errors: string[] = [];
 page.on("pageerror", (e) => errors.push(String(e)));
 
 await page.goto("http://localhost:3000/city", { waitUntil: "networkidle" });
-await page.waitForTimeout(600);
+await untilCount(page.locator("[data-building]"), (n) => n > 0);
 
 const before = (await admin.from("buildings").select("id", { count: "exact", head: true }).eq("city_id", city.id)).count ?? 0;
 
 // --- entering build mode -------------------------------------------------
 await page.getByRole("button", { name: /^build$/i }).click();
-await page.waitForTimeout(300);
-check("build mode opens its toolbar", (await page.getByRole("radiogroup", { name: /building type/i }).count()) === 1);
+const toolbars = await untilCount(page.getByRole("radiogroup", { name: /building type/i }), (n) => n === 1);
+check("build mode opens its toolbar", toolbars === 1, `${toolbars} toolbars`);
 check("the world dims while building", (await page.locator('[aria-hidden="true"].pointer-events-none.absolute.inset-0').count()) >= 1);
 
 // --- the ghost tracks the cursor and reports validity --------------------
 const viewport = await page.locator('[role="application"]').boundingBox();
 // Somewhere over open grass, outside any district.
 await page.mouse.move(viewport!.x + 120, viewport!.y + viewport!.height - 80);
-await page.waitForTimeout(250);
-const hint = await page.locator('[role="status"]').last().innerText();
+const hint = await untilText(page.locator('[role="status"]').last(), (t) => /outside/i.test(t));
 check("a lot outside a district is refused with a reason", /outside/i.test(hint), hint.trim());
 
 // --- keyboard placement inside a district --------------------------------
@@ -62,7 +62,6 @@ await page.fill("#build-title", "Check Board");
 const app = page.locator('[role="application"]');
 await app.focus();
 for (let i = 0; i < 6; i++) await page.keyboard.press("ArrowRight");
-await page.waitForTimeout(200);
 await page.screenshot({ path: "scripts/shots/build-ghost.png" });
 
 // Place with the pointer on a lot we know is inside Harbor District.
@@ -96,16 +95,21 @@ const point = await page.evaluate(
 );
 
 await page.mouse.move(point.x, point.y);
-await page.waitForTimeout(250);
-const hint2 = await page.locator('[role="status"]').last().innerText();
+const hint2 = await untilText(
+  page.locator('[role="status"]').last(),
+  (t) => t.trim().length > 0 && !/outside|already|water/i.test(t),
+);
 check("a free lot inside a district is accepted", !/outside|already|water/i.test(hint2), hint2.trim());
 
 await page.mouse.down();
 await page.mouse.up();
 await page.waitForURL(/\/b\/[0-9a-f-]+/, { timeout: 15000 }).catch(() => {});
-await page.waitForTimeout(1500);
 
-const after = (await admin.from("buildings").select("id", { count: "exact", head: true }).eq("city_id", city.id)).count ?? 0;
+const after = await until(
+  async () =>
+    (await admin.from("buildings").select("id", { count: "exact", head: true }).eq("city_id", city.id)).count ?? 0,
+  (n) => n === before + 1,
+);
 check("placing creates a building", after === before + 1, `${before} -> ${after}`);
 check("placement opens the new interior", /\/b\//.test(page.url()), page.url());
 
@@ -137,7 +141,7 @@ check("the database refuses a second building on that lot", !!dup.error, dup.err
 
 // --- district creation ---------------------------------------------------
 await page.goto("http://localhost:3000/city", { waitUntil: "networkidle" });
-await page.waitForTimeout(500);
+await untilCount(page.locator("[data-building]"), (n) => n > 0);
 const hoodsBefore = (await admin.from("neighborhoods").select("id", { count: "exact", head: true }).eq("city_id", city.id)).count ?? 0;
 
 // Empty ground south-east of the seeded districts.
@@ -170,7 +174,6 @@ await page.mouse.move(
   { steps: 10 },
 );
 await page.mouse.up();
-await page.waitForTimeout(400);
 
 await page.getByRole("button", { name: /^build$/i }).click();
 await page.getByRole("radio", { name: /^district$/i }).click();
@@ -179,31 +182,43 @@ await page.fill("#district-w", "5");
 
 const districtPoint = await screenFor(TARGET);
 await page.mouse.move(districtPoint.x, districtPoint.y);
-await page.waitForTimeout(250);
 await page.screenshot({ path: "scripts/shots/build-district.png" });
 await page.mouse.down();
 await page.mouse.up();
-await page.waitForTimeout(2500);
 
-const hoodsAfter = (await admin.from("neighborhoods").select("id", { count: "exact", head: true }).eq("city_id", city.id)).count ?? 0;
+const hoodsAfter = await until(
+  async () =>
+    (await admin.from("neighborhoods").select("id", { count: "exact", head: true }).eq("city_id", city.id)).count ?? 0,
+  (n) => n === hoodsBefore + 1,
+);
 check("founding a district creates it", hoodsAfter === hoodsBefore + 1, `${hoodsBefore} -> ${hoodsAfter}`);
 
 const { data: quarter } = await admin
   .from("neighborhoods").select("id, slug, origin_x, origin_y, width, height, biome").eq("city_id", city.id).eq("name", "Test Quarter").maybeSingle();
 check("the district has the chosen size", quarter?.width === 5, `${quarter?.width}x${quarter?.height}`);
 
-const { count: tinted } = await admin
-  .from("tiles").select("x", { count: "exact", head: true }).eq("neighborhood_id", quarter?.id ?? "");
-check("its ground is tinted", (tinted ?? 0) === (quarter?.width ?? 0) * (quarter?.height ?? 0), `${tinted} tiles`);
+// `createNeighborhood` writes the district first and then tints its ground,
+// so waiting for the district row is waiting for the first of two writes.
+const expectedTiles = (quarter?.width ?? 0) * (quarter?.height ?? 0);
+const tinted = await until(
+  async () =>
+    (
+      await admin
+        .from("tiles").select("x", { count: "exact", head: true }).eq("neighborhood_id", quarter?.id ?? "")
+    ).count ?? 0,
+  (n) => n === expectedTiles,
+);
+check("its ground is tinted", tinted === expectedTiles, `${tinted} tiles`);
 
 // --- region move ---------------------------------------------------------
 await page.goto(`http://localhost:3000/n/${quarter!.slug}`, { waitUntil: "networkidle" });
 await page.fill("#region-originX", String(quarter!.origin_x + 2));
 await page.getByRole("button", { name: /apply/i }).click();
-await page.waitForTimeout(2000);
 
-const { data: movedHood } = await admin
-  .from("neighborhoods").select("origin_x").eq("id", quarter!.id).single();
+const movedHood = await until(
+  async () => (await admin.from("neighborhoods").select("origin_x").eq("id", quarter!.id).single()).data,
+  (row) => row?.origin_x === quarter!.origin_x + 2,
+);
 check("the region form moves a district", movedHood?.origin_x === quarter!.origin_x + 2,
   `${quarter!.origin_x} -> ${movedHood?.origin_x}`);
 
@@ -211,8 +226,7 @@ check("the region form moves a district", movedHood?.origin_x === quarter!.origi
 await page.fill("#region-originX", "4");
 await page.fill("#region-originY", "4");
 await page.getByRole("button", { name: /apply/i }).click();
-await page.waitForTimeout(1800);
-const overlapMsg = await page.locator('form [role="status"]').innerText();
+const overlapMsg = await untilText(page.locator('form [role="status"]'), (t) => /overlap/i.test(t));
 check("an overlapping move is refused", /overlap/i.test(overlapMsg), overlapMsg.trim());
 
 await admin.from("neighborhoods").delete().eq("id", quarter!.id);

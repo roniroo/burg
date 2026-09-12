@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../lib/database.types";
+import { until, untilCount } from "./until";
 
 config({ path: ".env.local", quiet: true });
 const admin = createClient<Database>(
@@ -54,16 +55,22 @@ check("seeded notes do not overlap", overlapping === 0, `${overlapping} overlapp
 const probe = `note probe ${Date.now()}`;
 await notes.first().fill(probe);
 await page.locator("h1").click();
-await page.waitForTimeout(1500);
-const { data: edited } = await admin
-  .from("board_notes").select("body").eq("building_id", boardId).order("position").limit(1).single();
+const edited = await until(
+  async () =>
+    (await admin.from("board_notes").select("body").eq("building_id", boardId).order("position").limit(1).single())
+      .data,
+  (row) => row?.body === probe,
+);
 check("editing a note persists", edited?.body === probe, edited?.body ?? "");
 
 // --- colour --------------------------------------------------------------
 await page.locator('button[aria-label="Colour 3"]').first().click();
-await page.waitForTimeout(1400);
-const { data: coloured } = await admin
-  .from("board_notes").select("color").eq("building_id", boardId).order("position").limit(1).single();
+const coloured = await until(
+  async () =>
+    (await admin.from("board_notes").select("color").eq("building_id", boardId).order("position").limit(1).single())
+      .data,
+  (row) => row?.color === 3,
+);
 check("changing colour persists", coloured?.color === 3, String(coloured?.color));
 
 // --- drag ----------------------------------------------------------------
@@ -74,38 +81,56 @@ await page.mouse.down();
 // Aim at empty cork below the seeded grid, so nothing ends up covered.
 await page.mouse.move(before!.x + 520, before!.y + 380, { steps: 8 });
 await page.mouse.up();
-await page.waitForTimeout(1600);
-const { data: moved } = await admin
-  .from("board_notes").select("pin_x, pin_y").eq("building_id", boardId).order("position").limit(1).single();
+const moved = await until(
+  async () =>
+    (await admin.from("board_notes").select("pin_x, pin_y").eq("building_id", boardId).order("position").limit(1)
+      .single()).data,
+  (row) => (row?.pin_x ?? 0) > 400 && (row?.pin_y ?? 0) > 300,
+);
 check("dragging a note persists its position", (moved?.pin_x ?? 0) > 400 && (moved?.pin_y ?? 0) > 300, `pin_x=${moved?.pin_x} pin_y=${moved?.pin_y}`);
 
 // --- modes ---------------------------------------------------------------
 await page.getByRole("button", { name: /freeform/i }).click();
-await page.waitForTimeout(1800);
+// The lanes come from a server action, so how long they take is a property of
+// the machine and not of the board. This was the sleep that actually flaked:
+// 1800ms is plenty on an idle laptop and not plenty under a production build.
 const lanes = page.locator("section[aria-label]");
-check("switching to columns creates lanes", (await lanes.count()) >= 3, `${await lanes.count()} lanes`);
+const laneCount = await untilCount(lanes, (n) => n >= 3);
+check("switching to columns creates lanes", laneCount >= 3, `${laneCount} lanes`);
 await page.screenshot({ path: "scripts/shots/board-columns.png" });
 
-const { data: boardRow } = await admin.from("boards").select("mode").eq("building_id", boardId).single();
+const boardRow = await until(
+  async () => (await admin.from("boards").select("mode").eq("building_id", boardId).single()).data,
+  (row) => row?.mode === "columns",
+);
 check("board mode persists", boardRow?.mode === "columns", boardRow?.mode ?? "");
 
 await page.getByRole("button", { name: /columns/i }).click();
-await page.waitForTimeout(1500);
-check("switching back to freeform", (await page.locator('textarea[aria-label="Note text"]').count()) > 0);
+const freeformNotes = await untilCount(page.locator('textarea[aria-label="Note text"]'), (n) => n > 0);
+check("switching back to freeform", freeformNotes > 0, `${freeformNotes} notes`);
 
 // --- promotion -----------------------------------------------------------
 const notesBefore = (await admin.from("board_notes").select("id", { count: "exact", head: true }).eq("building_id", boardId)).count ?? 0;
 const buildingsBefore = (await admin.from("buildings").select("id", { count: "exact", head: true })).count ?? 0;
 
 await page.getByRole("button", { name: /^promote$/i }).last().click();
-await page.waitForTimeout(300);
+await untilCount(page.getByRole("button", { name: /build a library/i }), (n) => n > 0);
 await page.getByRole("button", { name: /build a library/i }).click();
 
 await page.waitForURL(/\/b\/[0-9a-f-]+/, { timeout: 15000 }).catch(() => {});
-await page.waitForTimeout(2000);
 
-const notesAfter = (await admin.from("board_notes").select("id", { count: "exact", head: true }).eq("building_id", boardId)).count ?? 0;
-const buildingsAfter = (await admin.from("buildings").select("id", { count: "exact", head: true })).count ?? 0;
+// Promotion is two writes -- the note goes, the building arrives -- so wait
+// for the pair rather than for a duration long enough to cover both.
+const notesAfter = await until(
+  async () =>
+    (await admin.from("board_notes").select("id", { count: "exact", head: true }).eq("building_id", boardId)).count ??
+    0,
+  (n) => n === notesBefore - 1,
+);
+const buildingsAfter = await until(
+  async () => (await admin.from("buildings").select("id", { count: "exact", head: true })).count ?? 0,
+  (n) => n === buildingsBefore + 1,
+);
 
 check("promotion removes the note", notesAfter === notesBefore - 1, `${notesBefore} -> ${notesAfter}`);
 check("promotion creates a building", buildingsAfter === buildingsBefore + 1, `${buildingsBefore} -> ${buildingsAfter}`);

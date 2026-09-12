@@ -5,6 +5,7 @@ import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../lib/database.types";
 import { smokeCity } from "./smoke-city";
+import { until, untilCount, untilText } from "./until";
 
 config({ path: ".env.local", quiet: true });
 const admin = createClient<Database>(
@@ -52,14 +53,13 @@ page.on("pageerror", (e) => errors.push(String(e)));
 
 // --- demolishing from the map -------------------------------------------
 await page.goto("http://localhost:3000/city", { waitUntil: "networkidle" });
-await page.waitForTimeout(900);
+await untilCount(page.locator("[data-building]"), (n) => n > 0);
 
 const before = await countBuildings();
 check("the map offers a demolish mode", (await page.getByRole("button", { name: /^demolish$/i }).count()) === 1);
 
 await page.getByRole("button", { name: /^demolish$/i }).click();
-await page.waitForTimeout(300);
-const modeHint = await page.locator('[role="status"]').last().innerText();
+const modeHint = await untilText(page.locator('[role="status"]').last(), (t) => /click a building/i.test(t));
 check("demolish mode explains itself", /click a building/i.test(modeHint), modeHint.trim());
 check("the world dims while demolishing",
   (await page.locator('[aria-hidden="true"].pointer-events-none.absolute.inset-0').count()) >= 1);
@@ -83,17 +83,14 @@ check("found a building on screen to condemn", !!victim, victim?.title ?? "");
 // area is the painted art. Aiming at a computed corner would miss the
 // silhouette and land on the ground behind, condemning the district instead.
 await page.locator(`[data-building="${victim!.id}"]`).click();
-await page.waitForTimeout(400);
+const barText = await untilText(page.locator("[data-demolish-bar]"), (t) => t.includes(victim!.title));
 await page.screenshot({ path: "scripts/shots/demolish-condemned.png" });
-
-const barText = await page.locator("[data-demolish-bar]").innerText();
 check("the bar names the condemned building", barText.includes(victim!.title), barText.replace(/\n/g, " ").trim());
 check("condemning does not open the interior", !/\/b\//.test(page.url()), page.url());
 
 await page.getByRole("button", { name: /demolish it/i }).click();
-await page.waitForTimeout(2000);
 
-const after = await countBuildings();
+const after = await until(countBuildings, (n) => n === before - 1);
 check("demolishing removes the building", after === before - 1, `${before} -> ${after}`);
 
 const { data: gone } = await admin.from("buildings").select("id").eq("id", victim!.id).maybeSingle();
@@ -133,31 +130,27 @@ for (const b of candidates ?? []) {
 }
 if (second) {
   await page.locator(`[data-building="${second}"]`).click();
-  await page.waitForTimeout(300);
+  const demolishIt = await untilCount(page.getByRole("button", { name: /demolish it/i }), (n) => n === 1);
   const secondBar = await page.locator("[data-demolish-bar]").innerText();
-  check("a second building can be condemned",
-    (await page.getByRole("button", { name: /demolish it/i }).count()) === 1,
-    secondBar.replace(/\n/g, " ").trim());
+  check("a second building can be condemned", demolishIt === 1, secondBar.replace(/\n/g, " ").trim());
 
   await page.locator('[role="application"]').focus();
   await page.keyboard.press("Escape");
-  await page.waitForTimeout(300);
+  const released = await untilCount(page.getByRole("button", { name: /demolish it/i }), (n) => n === 0);
   check("escape lets the condemned building go",
-    (await page.getByRole("button", { name: /demolish it/i }).count()) === 0 &&
-      (await page.locator("[data-demolish-bar]").count()) === 1);
+    released === 0 && (await page.locator("[data-demolish-bar]").count()) === 1);
 
   await page.keyboard.press("Escape");
-  await page.waitForTimeout(300);
+  const barsLeft = await untilCount(page.locator("[data-demolish-bar]"), (n) => n === 0);
   check("escape again leaves demolish mode",
-    (await page.locator("[data-demolish-bar]").count()) === 0 &&
-      (await page.getByRole("button", { name: /^build$/i }).count()) === 1);
+    barsLeft === 0 && (await page.getByRole("button", { name: /^build$/i }).count()) === 1);
 }
 
 // --- dissolving a district from the map ---------------------------------
 // Clicking a district's open ground condemns the district; clicking a building
 // on it condemns the building. What you clicked says which you meant.
 await page.getByRole("button", { name: /^demolish$/i }).click();
-await page.waitForTimeout(300);
+await untilCount(page.locator("[data-demolish-bar]"), (n) => n === 1);
 
 const { data: mapHood } = await admin
   .from("neighborhoods").select("id, name, origin_x, origin_y, width, height")
@@ -222,24 +215,32 @@ check("a sprite's hit area is its art, not its bounding box",
 
 const groundPoint = await screenFor(openGround!.x, openGround!.y);
 await page.mouse.click(groundPoint.x, groundPoint.y);
-await page.waitForTimeout(400);
-await page.screenshot({ path: "scripts/shots/demolish-district.png" });
 
-const districtBar = await page.locator("[data-demolish-bar]").innerText();
+// The bar's count is rendered from what the page has loaded; `doomed` comes
+// from the database. They agree once the page has caught up with the building
+// demolished earlier in this suite, so waiting for them to agree *is* the
+// wait. Reading the bar the moment it appears races that revalidation, which
+// is what the old blanket sleep was covering for.
+const { count: doomed } = await admin
+  .from("buildings").select("id", { count: "exact", head: true }).eq("neighborhood_id", mapHood!.id);
+const districtBar = await untilText(
+  page.locator("[data-demolish-bar]"),
+  (t) => /dissolve it/i.test(t) && new RegExp(`${doomed ?? 0} building`).test(t),
+);
+await page.screenshot({ path: "scripts/shots/demolish-district.png" });
 check("clicking a district's ground condemns the district",
   districtBar.includes(mapHood!.name) && /dissolve it/i.test(districtBar),
   districtBar.replace(/\n/g, " ").trim());
 
-const { count: doomed } = await admin
-  .from("buildings").select("id", { count: "exact", head: true }).eq("neighborhood_id", mapHood!.id);
 check("the bar counts what comes down with it",
   new RegExp(`${doomed} building`).test(districtBar), `${doomed} in it`);
 
 await page.getByRole("button", { name: /dissolve it/i }).click();
-await page.waitForTimeout(2500);
 
-const { data: mapHoodGone } = await admin
-  .from("neighborhoods").select("id").eq("id", mapHood!.id).maybeSingle();
+const mapHoodGone = await until(
+  async () => (await admin.from("neighborhoods").select("id").eq("id", mapHood!.id).maybeSingle()).data,
+  (row) => !row,
+);
 check("dissolving from the map removes the district", !mapHoodGone, mapHood!.name);
 const { count: mapHoodBuildings } = await admin
   .from("buildings").select("id", { count: "exact", head: true }).eq("neighborhood_id", mapHood!.id);
@@ -256,26 +257,29 @@ await page.mouse.move(anchor.x, anchor.y);
 await page.mouse.down();
 await page.mouse.move(anchor.x + 140, anchor.y + 60, { steps: 8 });
 await page.mouse.up();
-await page.waitForTimeout(400);
+// A pan must not condemn anything, so the assertion is an absence. There is
+// no arrival to poll for, which is why this one reads once, after the gesture
+// has already completed.
 check("dragging pans instead of condemning",
   (await page.getByRole("button", { name: /dissolve it|demolish it/i }).count()) === 0);
 
 await page.getByRole("button", { name: /^done$/i }).click();
-await page.waitForTimeout(300);
+await untilCount(page.locator("[data-demolish-bar]"), (n) => n === 0);
 
 // --- demolishing from inside --------------------------------------------
 const { data: next } = await admin
   .from("buildings").select("id, title").eq("city_id", city.id).limit(1).single();
 await page.goto(`http://localhost:3000/b/${next!.id}`, { waitUntil: "networkidle" });
 await page.getByRole("button", { name: /^demolish$/i }).click();
-await page.waitForTimeout(200);
-const question = await page.locator("text=/Everything inside goes with it/i").count();
-check("the interior warns before demolishing", question === 1);
+const question = await untilCount(page.locator("text=/Everything inside goes with it/i"), (n) => n === 1);
+check("the interior warns before demolishing", question === 1, `${question} warnings`);
 await page.getByRole("button", { name: /demolish it/i }).click();
 await page.waitForURL("**/city", { timeout: 15000 }).catch(() => {});
-await page.waitForTimeout(1200);
 check("demolishing an interior returns to the map", /\/city$/.test(page.url()), page.url());
-const { data: goneToo } = await admin.from("buildings").select("id").eq("id", next!.id).maybeSingle();
+const goneToo = await until(
+  async () => (await admin.from("buildings").select("id").eq("id", next!.id).maybeSingle()).data,
+  (row) => !row,
+);
 check("and removes the building", !goneToo);
 
 // --- dissolving a district ----------------------------------------------
@@ -286,12 +290,14 @@ const { count: hoodBuildings } = await admin
 
 await page.goto(`http://localhost:3000/n/${hood!.slug}`, { waitUntil: "networkidle" });
 await page.getByRole("button", { name: /dissolve district/i }).click();
-await page.waitForTimeout(200);
+await untilCount(page.getByRole("button", { name: /dissolve it/i }), (n) => n > 0);
 await page.getByRole("button", { name: /dissolve it/i }).click();
 await page.waitForURL("**/city", { timeout: 15000 }).catch(() => {});
-await page.waitForTimeout(1500);
 
-const { data: hoodGone } = await admin.from("neighborhoods").select("id").eq("id", hood!.id).maybeSingle();
+const hoodGone = await until(
+  async () => (await admin.from("neighborhoods").select("id").eq("id", hood!.id).maybeSingle()).data,
+  (row) => !row,
+);
 check("dissolving removes the district", !hoodGone, hood!.name);
 const { count: orphanBuildings } = await admin
   .from("buildings").select("id", { count: "exact", head: true }).eq("neighborhood_id", hood!.id);
@@ -313,14 +319,15 @@ check("a wrong name leaves it disabled", await clearButton.isDisabled());
 
 await page.getByRole("radio", { name: /everything/i }).click();
 await nameField.fill(city.name);
-await page.waitForTimeout(200);
-check("the right name arms it", !(await clearButton.isDisabled()));
+const stillDisabled = await until(() => clearButton.isDisabled(), (disabled) => !disabled);
+check("the right name arms it", !stillDisabled);
 await page.screenshot({ path: "scripts/shots/demolish-start-fresh.png" });
 
 await clearButton.click();
-await page.waitForTimeout(3000);
 
-const finalBuildings = await countBuildings();
+// Start fresh is several cascading deletes; wait for the city to be empty
+// rather than for three seconds, which is a guess at how long that takes.
+const finalBuildings = await until(countBuildings, (n) => n === 0, { timeoutMs: 30000 });
 const { count: finalHoods } = await admin
   .from("neighborhoods").select("id", { count: "exact", head: true }).eq("city_id", city.id);
 const { count: finalTiles } = await admin
@@ -333,17 +340,19 @@ const { data: stillThere } = await admin.from("cities").select("id, name").eq("i
 check("the city itself survives", !!stillThere, stillThere?.name ?? "gone");
 
 await page.goto("http://localhost:3000/city", { waitUntil: "networkidle" });
-await page.waitForTimeout(800);
+const emptyMap = await untilCount(page.locator('[role="application"]'), (n) => n === 1);
 await page.screenshot({ path: "scripts/shots/demolish-empty-city.png" });
-check("the empty map still renders", (await page.locator('[role="application"]').count()) === 1);
+check("the empty map still renders", emptyMap === 1, `${emptyMap} maps`);
 
 // --- and you can build again on the cleared ground -----------------------
 // A building needs a district, so the bar has to open on the survey when
 // there are none left; otherwise every lot the user aims at is refused.
 await page.getByRole("button", { name: /^build$/i }).click();
-await page.waitForTimeout(300);
-check("build opens on the district survey when the map is empty",
-  (await page.getByRole("radio", { name: /^district$/i, checked: true }).count()) === 1);
+const surveyed = await untilCount(
+  page.getByRole("radio", { name: /^district$/i, checked: true }),
+  (n) => n === 1,
+);
+check("build opens on the district survey when the map is empty", surveyed === 1, `${surveyed} checked`);
 
 await page.fill("#district-name", "First Quarter");
 const point = await page.evaluate(({ tx, ty }: { tx: number; ty: number }) => {
@@ -353,10 +362,11 @@ const point = await page.evaluate(({ tx, ty }: { tx: number; ty: number }) => {
   return { x: rect.left + (tx - ty) * 32 * m.a + m.e, y: rect.top + ((tx + ty) * 16 + 16) * m.d + m.f };
 }, { tx: 16, ty: 16 });
 await page.mouse.click(point.x, point.y);
-await page.waitForTimeout(2500);
 
-const { data: reborn } = await admin
-  .from("neighborhoods").select("id, name").eq("city_id", city.id).maybeSingle();
+const reborn = await until(
+  async () => (await admin.from("neighborhoods").select("id, name").eq("city_id", city.id).maybeSingle()).data,
+  (row) => row?.name === "First Quarter",
+);
 check("a district can be founded on the cleared ground", reborn?.name === "First Quarter", reborn?.name ?? "none");
 await page.screenshot({ path: "scripts/shots/demolish-rebuilt.png" });
 

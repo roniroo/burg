@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../lib/database.types";
+import { untilText } from "./until";
 import { parseMarkdown } from "../lib/markdown";
 import { SMOKE_EMAIL } from "./smoke-city";
 
@@ -70,16 +71,19 @@ check("sign-in offers a reset",
   (await page.getByRole("button", { name: /forgotten your password/i }).count()) === 1);
 
 await page.getByRole("button", { name: /forgotten your password/i }).click();
-await page.waitForTimeout(600);
-const noEmail = await page.locator('[role="alert"]').first().innerText().catch(() => "");
+const noEmail = await untilText(page.locator('[role="alert"]').first(), (t) => /enter your email/i.test(t));
 check("a reset with no address asks for one", /enter your email/i.test(noEmail), noEmail.trim().slice(0, 50));
 
 // An address with no account must look exactly like one that has an account,
 // or the form becomes a way to discover who is a user.
 await page.fill("#email", `nobody+${Date.now()}@burg.local`);
 await page.getByRole("button", { name: /forgotten your password/i }).click();
-await page.waitForTimeout(2500);
-const body = await page.locator("body").innerText();
+// Either the neutral answer or the built-in mailer's rate limit -- both are
+// the same "we are not telling you who has an account" outcome.
+const body = await untilText(
+  page.locator("body"),
+  (t) => /if that address has an account/i.test(t) || /only allows a few messages/i.test(t),
+);
 check("an unknown address gets the same answer as a known one",
   /if that address has an account/i.test(body) || /only allows a few messages/i.test(body),
   body.replace(/\n/g, " ").slice(0, 70));
@@ -112,9 +116,8 @@ check("the reset form refuses without a session", /\/sign-in/.test(page.url()) &
   await reset.fill("#new-password", CHANGED);
   await reset.fill("#confirm-password", "something-else-entirely");
   await reset.getByRole("button", { name: /save password/i }).click();
-  await reset.waitForTimeout(600);
-  check("a mismatch is caught before the server",
-    /do not match/i.test(await reset.locator('[role="alert"]').first().innerText().catch(() => "")));
+  const mismatch = await untilText(reset.locator('[role="alert"]').first(), (t) => /do not match/i.test(t));
+  check("a mismatch is caught before the server", /do not match/i.test(mismatch), mismatch.trim().slice(0, 40));
 
   await reset.fill("#confirm-password", CHANGED);
   await reset.getByRole("button", { name: /save password/i }).click();

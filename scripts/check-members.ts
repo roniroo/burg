@@ -12,6 +12,7 @@ import { config } from "dotenv";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../lib/database.types";
 import { smokeCity } from "./smoke-city";
+import { until, untilCount, untilText } from "./until";
 
 config({ path: ".env.local", quiet: true });
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -65,12 +66,22 @@ check("the owner sees the invite form", (await page.locator("#invite-email").cou
 await page.fill("#invite-email", GUEST);
 await page.selectOption("#invite-role", "viewer");
 await page.getByRole("button", { name: /send invite/i }).click();
-await page.waitForTimeout(2500);
 
-const { data: invite } = await admin
-  .from("city_invites").select("id, role, email").eq("city_id", city.id).eq("email", GUEST).maybeSingle();
+const invite = await until(
+  async () =>
+    (
+      await admin
+        .from("city_invites").select("id, role, email").eq("city_id", city.id).eq("email", GUEST).maybeSingle()
+    ).data,
+  (row) => !!row,
+);
 check("the invitation is recorded", !!invite, invite?.role ?? "none");
-check("it is listed as pending", /invited, not yet arrived/i.test(await page.locator("body").innerText()));
+
+// Two separate arrivals: the row, and the page catching up to it. Waiting
+// only for the row asserts the list before it has re-rendered -- which is
+// exactly what the old blanket sleep was quietly covering for.
+const pendingList = await untilText(page.locator("body"), (t) => /invited, not yet arrived/i.test(t));
+check("it is listed as pending", /invited, not yet arrived/i.test(pendingList));
 
 // --- the guest claims it on sign-in ---------------------------------------
 const guestCtx = await browser.newContext({ viewport: { width: 1400, height: 1000 } });
@@ -136,17 +147,24 @@ check("a viewer cannot invite anyone", !!inviteError, inviteError ? "refused" : 
 // insert — so they were left with only the shared city and landed on it by
 // default. These checks were passing because of that bug, not in spite of it.
 await guestPage.goto("http://localhost:3000/city", { waitUntil: "networkidle" });
-await guestPage.waitForTimeout(1200);
+const switchers = await untilCount(guestPage.locator("#city-switcher"), (n) => n === 1);
 
-check("a guest gets their own city too", (await guestPage.locator("#city-switcher").count()) === 1,
+check("a guest gets their own city too", switchers === 1,
   "the switcher only renders with more than one city to switch between");
 
+// Switching writes a cookie and then re-renders, so the tell is the select
+// showing the city we asked for rather than a couple of seconds passing.
 await guestPage.selectOption("#city-switcher", city.id);
-await guestPage.waitForTimeout(2500);
+await until(
+  () => guestPage.locator("#city-switcher").inputValue().catch(() => ""),
+  (v) => v === city.id,
+);
 await guestPage.goto("http://localhost:3000/city", { waitUntil: "networkidle" });
-await guestPage.waitForTimeout(1200);
-check("switching lands them in the shared city",
-  (await guestPage.locator("#city-switcher").inputValue()) === city.id);
+const activeCity = await until(
+  () => guestPage.locator("#city-switcher").inputValue().catch(() => ""),
+  (v) => v === city.id,
+);
+check("switching lands them in the shared city", activeCity === city.id);
 
 check("a viewer is offered no Build button",
   (await guestPage.getByRole("button", { name: /^build$/i }).count()) === 0);
@@ -169,9 +187,12 @@ check("a viewer can leave", (await guestPage.getByRole("button", { name: /^leave
 // --- promoted to editor ---------------------------------------------------
 await page.goto("http://localhost:3000/directory", { waitUntil: "networkidle" });
 await page.selectOption(`#role-${guestId}`, "editor");
-await page.waitForTimeout(2500);
-const { data: promoted } = await admin
-  .from("city_members").select("role").eq("city_id", city.id).eq("user_id", guestId).maybeSingle();
+const promoted = await until(
+  async () =>
+    (await admin.from("city_members").select("role").eq("city_id", city.id).eq("user_id", guestId).maybeSingle())
+      .data,
+  (row) => row?.role === "editor",
+);
 check("the owner can promote a viewer to editor", promoted?.role === "editor", promoted?.role ?? "");
 
 const editorDb = await clientFor(GUEST, GUEST_PASSWORD);
@@ -192,9 +213,12 @@ check("an editor cannot demote the owner", ownerRow?.role === "owner", ownerDemo
 // --- removal --------------------------------------------------------------
 await page.goto("http://localhost:3000/directory", { waitUntil: "networkidle" });
 await page.getByRole("button", { name: /^remove$/i }).first().click();
-await page.waitForTimeout(2500);
-const { data: removed } = await admin
-  .from("city_members").select("role").eq("city_id", city.id).eq("user_id", guestId).maybeSingle();
+const removed = await until(
+  async () =>
+    (await admin.from("city_members").select("role").eq("city_id", city.id).eq("user_id", guestId).maybeSingle())
+      .data,
+  (row) => !row,
+);
 check("the owner can remove someone", !removed, removed?.role ?? "gone");
 
 const goneDb = await clientFor(GUEST, GUEST_PASSWORD);
