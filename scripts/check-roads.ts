@@ -1,22 +1,8 @@
 /** Roads: solving, tiers, gates, bridges, zoom LOD, hover and the panel. */
 import { chromium } from "playwright";
-import { readFileSync } from "node:fs";
-import { config } from "dotenv";
-import { createClient } from "@supabase/supabase-js";
-import type { Database } from "../lib/database.types";
+import { admin } from "./local-db";
 import { smokeCity } from "./smoke-city";
 import { until, untilCount } from "./until";
-
-config({ path: ".env.local", quiet: true });
-const admin = createClient<Database>(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false, autoRefreshToken: false } },
-);
-
-const cookieLine = readFileSync("/tmp/burg-cookie.txt", "utf-8").trim();
-const eq = cookieLine.indexOf("=");
-const cookie = { name: cookieLine.slice(0, eq), value: cookieLine.slice(eq + 1), domain: "localhost", path: "/" };
 
 const results: string[] = [];
 const check = (n: string, ok: boolean, d = "") => {
@@ -27,7 +13,6 @@ const check = (n: string, ok: boolean, d = "") => {
 
 const browser = await chromium.launch();
 const context = await browser.newContext({ viewport: { width: 1400, height: 950 } });
-await context.addCookies([cookie]);
 const page = await context.newPage();
 const errors: string[] = [];
 page.on("pageerror", (e) => errors.push(String(e)));
@@ -135,7 +120,6 @@ await page.screenshot({ path: "scripts/shots/roads-panel.png" });
 await page.keyboard.press("Escape");
 const closed = await untilCount(panel, (n) => n === 0);
 check("Escape closes the panel", closed === 0, `${closed} panels`);
-
 
 // --- the paving ceremony -------------------------------------------------
 // Creating a link should leave a stale route that the map then paves in.

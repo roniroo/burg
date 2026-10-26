@@ -1,0 +1,53 @@
+# Packages Burg.app: `npm run desktop:package`. See DEV.md, "The desktop app".
+#
+# desktop/ is the app directory and has its own package.json with no
+# dependencies, so the bundle's own code is just desktop/main.mjs. Everything
+# the server needs is the standalone build, shipped as a resource.
+
+appId: city.theburg.desktop
+productName: Burg
+copyright: Burg
+
+directories:
+  app: desktop
+  output: dist-desktop
+
+# desktop/ has no dependencies, and electron-builder then falls back to
+# collecting the repo root's -- every one of them, into app.asar. The server
+# carries its own trimmed node_modules, so the shell needs none at all.
+files:
+  - main.mjs
+  - package.json
+  - "!**/node_modules/**"
+
+# The server goes in by hand; see desktop/after-pack.cjs for why.
+afterPack: desktop/after-pack.cjs
+
+mac:
+  category: public.app-category.productivity
+  icon: public/icon-512.png
+  target:
+    - target: dmg
+      arch: [arm64]
+  # Ad-hoc signed: Apple silicon will not run an unsigned binary at all, and a
+  # Developer ID is only needed to hand the app to other people. Hardened
+  # runtime is for notarisation, which an ad-hoc build cannot have.
+  identity: "-"
+  hardenedRuntime: false
+
+# Shut the doors that let something other than this app run code inside it.
+# runAsNode matters in practice, not just in principle: editors built on
+# Electron (VS Code, Cursor) export ELECTRON_RUN_AS_NODE=1 to their terminals,
+# `open` passes the caller's environment on, and an app that honours it starts
+# as a bare Node with no script and quits at once -- silently. Cookie
+# encryption is left alone: on an ad-hoc signed app it costs a Keychain prompt
+# and protects only a token that changes on every launch.
+electronFuses:
+  runAsNode: false
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  onlyLoadAppFromAsar: true
+  grantFileProtocolExtraPrivileges: false
+
+dmg:
+  title: Burg

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/db/server";
 import { parseScene } from "@/lib/canvas/model";
 import type { Json } from "@/lib/database.types";
 

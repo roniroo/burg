@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/db/server";
 import { cellToText, coerceCell, type Field, type FieldOptions } from "@/lib/table/model";
 import type { Json, TablesUpdate } from "@/lib/database.types";
 

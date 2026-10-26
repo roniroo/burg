@@ -3,35 +3,26 @@
  *
  * Not a runnable script -- a module the check-*.ts scripts import.
  *
- * The hosted project holds real cities alongside the smoke-test one, and an
- * unscoped `admin.from(...)` reaches all of them: `.eq("slug", "harbor-district")
- * .single()` matches two rows and throws, and a bare `count` totals someone
- * else's buildings into the assertion. Every suite resolves its city through
- * here and filters by the id it returns.
+ * The suites only ever reach the dev database (see local-db.ts), which belongs
+ * to one owner and holds the demo city `npm run seed` makes. Every suite still
+ * resolves its city here and filters by the id it returns, so that a second
+ * city -- one made by hand while poking at the dev server -- is never counted
+ * into an assertion or written to.
  */
-import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Database } from "../lib/database.types";
-
-export const SMOKE_EMAIL = "seedtest@burg.local";
+import type { Admin } from "./local-db";
 
 export type SmokeCity = { id: string; name: string; width: number; height: number };
 
-export async function smokeCity(
-  admin: SupabaseClient<Database>,
-  email = SMOKE_EMAIL,
-): Promise<SmokeCity> {
-  const { data: users } = await admin.auth.admin.listUsers({ perPage: 1000 });
-  const owner = users.users.find((u) => u.email?.toLowerCase() === email.toLowerCase());
-  if (!owner) throw new Error(`no user ${email}; run: npm run seed -- ${email} --create`);
-
-  const { data: city } = await admin
+export async function smokeCity(admin: Admin): Promise<SmokeCity> {
+  const { data: city, error } = await admin
     .from("cities")
     .select("id, name, width, height")
-    .eq("owner_id", owner.id)
+    .eq("slug", "ideaburg")
     .order("created_at")
     .limit(1)
     .maybeSingle();
-  if (!city) throw new Error(`${email} has no city; run: npm run seed -- ${email}`);
+  if (error) throw new Error(`could not read the dev database (is npm run dev up?): ${error.message}`);
+  if (!city) throw new Error("the dev database has no Ideaburg; run: npm run seed");
 
   return city;
 }

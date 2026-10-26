@@ -2,7 +2,7 @@
 
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { switchCity } from "@/lib/actions/members";
+import { switchCity } from "@/lib/actions/city";
 import type { CityRole } from "@/lib/queries";
 
 /**

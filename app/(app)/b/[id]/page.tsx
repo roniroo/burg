@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import type { JSONContent } from "@tiptap/core";
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/db/server";
 import { InteriorShell } from "@/components/interiors/interior-shell";
 import { Newsstand } from "@/components/interiors/newsstand";
 import { DocEditor, type LinkTarget } from "@/components/interiors/doc-editor";
@@ -10,7 +10,7 @@ import { Studio } from "@/components/interiors/studio";
 import { parseScene } from "@/lib/canvas/model";
 import type { Field, FieldOptions, Filter, Row, Sort } from "@/lib/table/model";
 import { Backlinks } from "@/components/interiors/backlinks";
-import { getCityRole } from "@/lib/queries";
+import { getCityRole, getCustomSprites } from "@/lib/queries";
 
 /**
  * The interior shell. Every building type lands here; the body is dispatched
@@ -32,6 +32,7 @@ export default async function BuildingPage({ params }: { params: Promise<{ id: s
   const hood = building.neighborhoods;
   const role = await getCityRole(building.city_id);
   const canEdit = role === "owner" || role === "editor";
+  const look = canEdit ? { current: building.custom_sprite_id, sprites: await getCustomSprites() } : undefined;
 
   if (building.artifact_type === "kiosk") {
     const { data: links } = await supabase
@@ -41,7 +42,7 @@ export default async function BuildingPage({ params }: { params: Promise<{ id: s
       .order("position");
 
     return (
-      <InteriorShell canEdit={canEdit} buildingId={id} title={building.title} artifactType="kiosk" neighborhood={hood}>
+      <InteriorShell canEdit={canEdit} look={look} buildingId={id} title={building.title} artifactType="kiosk" neighborhood={hood}>
         <Newsstand buildingId={id} links={links ?? []} />
         <Backlinks buildingId={id} />
       </InteriorShell>
@@ -66,7 +67,7 @@ export default async function BuildingPage({ params }: { params: Promise<{ id: s
     }));
 
     return (
-      <InteriorShell canEdit={canEdit} buildingId={id} title={building.title} artifactType="doc" neighborhood={hood}>
+      <InteriorShell canEdit={canEdit} look={look} buildingId={id} title={building.title} artifactType="doc" neighborhood={hood}>
         <DocEditor
           buildingId={id}
           initialContent={(document?.content ?? { type: "doc", content: [] }) as JSONContent}
@@ -111,7 +112,7 @@ export default async function BuildingPage({ params }: { params: Promise<{ id: s
     }));
 
     return (
-      <InteriorShell canEdit={canEdit} buildingId={id} title={building.title} artifactType="table" neighborhood={hood} wide>
+      <InteriorShell canEdit={canEdit} look={look} buildingId={id} title={building.title} artifactType="table" neighborhood={hood} wide>
         <Warehouse
           buildingId={id}
           fields={fields}
@@ -141,7 +142,7 @@ export default async function BuildingPage({ params }: { params: Promise<{ id: s
       .map((t) => ({ id: t.id, title: t.title, artifactType: t.artifact_type }));
 
     return (
-      <InteriorShell canEdit={canEdit} buildingId={id} title={building.title} artifactType="board" neighborhood={hood} wide>
+      <InteriorShell canEdit={canEdit} look={look} buildingId={id} title={building.title} artifactType="board" neighborhood={hood} wide>
         <Noticeboard
           buildingId={id}
           mode={board?.mode ?? "freeform"}
@@ -162,7 +163,7 @@ export default async function BuildingPage({ params }: { params: Promise<{ id: s
       .maybeSingle();
 
     return (
-      <InteriorShell canEdit={canEdit} buildingId={id} title={building.title} artifactType="canvas" neighborhood={hood} wide>
+      <InteriorShell canEdit={canEdit} look={look} buildingId={id} title={building.title} artifactType="canvas" neighborhood={hood} wide>
         <Studio buildingId={id} initialScene={parseScene(canvas?.scene)} />
         <Backlinks buildingId={id} />
       </InteriorShell>
@@ -170,7 +171,7 @@ export default async function BuildingPage({ params }: { params: Promise<{ id: s
   }
 
   return (
-    <InteriorShell canEdit={canEdit} buildingId={id} title={building.title} artifactType={building.artifact_type} neighborhood={hood}>
+    <InteriorShell canEdit={canEdit} look={look} buildingId={id} title={building.title} artifactType={building.artifact_type} neighborhood={hood}>
       <p className="prose-readable font-body text-sm text-stone">
         This interior is not built yet.
       </p>

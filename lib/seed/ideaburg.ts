@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Client } from "@/lib/db/client";
 import type { Database, Json } from "@/lib/database.types";
 import {
   ACTIVITY_HEADLINES,
@@ -9,8 +9,6 @@ import {
   RECIPES_PARAGRAPHS,
 } from "./content";
 import { spriteFootprint, type SpriteKey, type SpriteVariant } from "@/lib/sprites";
-
-type Client = SupabaseClient<Database>;
 
 export type SeedResult = { cityId: string; created: boolean };
 
@@ -76,9 +74,10 @@ function plaintext(node: Node): string {
  * Build the demo city "Ideaburg" for a user.
  *
  * Idempotent: if the user already owns a city with this slug the function
- * returns immediately. Safe to run as the signed-in user -- the insert order
- * (city, then membership, then everything else) satisfies RLS at every step,
- * so no service-role key is required.
+ * returns immediately. Runs on first launch (lib/db/server.ts) and from
+ * `npm run seed`. The insert order -- city, then membership, then everything
+ * else -- is the one RLS needed on the hosted database, and is kept because it
+ * is also the order the foreign keys want.
  */
 export async function seedIdeaburg(supabase: Client, userId: string): Promise<SeedResult> {
   const existing = await supabase

@@ -1,22 +1,8 @@
 /** Demolition: map mode, interior control, district dissolve, start fresh. */
 import { chromium } from "playwright";
-import { readFileSync } from "node:fs";
-import { config } from "dotenv";
-import { createClient } from "@supabase/supabase-js";
-import type { Database } from "../lib/database.types";
+import { admin } from "./local-db";
 import { smokeCity } from "./smoke-city";
 import { until, untilCount, untilText } from "./until";
-
-config({ path: ".env.local", quiet: true });
-const admin = createClient<Database>(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false, autoRefreshToken: false } },
-);
-
-const cookieLine = readFileSync("/tmp/burg-cookie.txt", "utf-8").trim();
-const eq = cookieLine.indexOf("=");
-const cookie = { name: cookieLine.slice(0, eq), value: cookieLine.slice(eq + 1), domain: "localhost", path: "/" };
 
 const results: string[] = [];
 const check = (n: string, ok: boolean, d = "") => {
@@ -27,7 +13,7 @@ const check = (n: string, ok: boolean, d = "") => {
 
 // Everything is scoped to the smoke-test user's city; another city on the same
 // project (a real one) must not be counted, let alone cleared.
-const city = await smokeCity(admin, process.argv.find((a) => a.includes("@")));
+const city = await smokeCity(admin);
 
 const countBuildings = async () =>
   (await admin.from("buildings").select("id", { count: "exact", head: true }).eq("city_id", city.id)).count ?? 0;
@@ -46,7 +32,6 @@ const screenFor = (tx: number, ty: number) =>
 
 const browser = await chromium.launch();
 const context = await browser.newContext({ viewport: { width: 1400, height: 950 } });
-await context.addCookies([cookie]);
 const page = await context.newPage();
 const errors: string[] = [];
 page.on("pageerror", (e) => errors.push(String(e)));

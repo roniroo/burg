@@ -2,15 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/db/server";
 import { fetchOpenGraph, urlSchema } from "@/lib/og";
 
 /**
  * Newsstand actions.
  *
- * Every action validates its input with Zod at the boundary and relies on RLS
- * for authorisation -- there is no ownership check in application code because
- * the policy already refuses rows outside the caller's city.
+ * Every action validates its input with Zod at the boundary. There is no
+ * ownership check: everything in this database belongs to the one person whose
+ * Mac it is, and proxy.ts is what keeps anyone else from calling these.
  */
 
 const addSchema = z.object({

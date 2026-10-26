@@ -1,15 +1,9 @@
 /** Phase 1 interaction checks: keyboard nav, zoom, hover, enter, focus. */
 import { chromium } from "playwright";
-import { readFileSync } from "node:fs";
 import { until, untilCount, untilText } from "./until";
-
-const cookieLine = readFileSync("/tmp/burg-cookie.txt", "utf-8").trim();
-const eq = cookieLine.indexOf("=");
-const cookie = { name: cookieLine.slice(0, eq), value: cookieLine.slice(eq + 1), domain: "localhost", path: "/" };
 
 const browser = await chromium.launch();
 const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
-await context.addCookies([cookie]);
 const page = await context.newPage();
 const errors: string[] = [];
 page.on("pageerror", (e) => errors.push(String(e)));

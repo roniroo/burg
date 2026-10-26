@@ -1,7 +1,7 @@
 "use server";
 
 import { z } from "zod";
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/db/server";
 import type { Database } from "@/lib/database.types";
 
 /**
@@ -9,8 +9,7 @@ import type { Database } from "@/lib/database.types";
  *
  * One RPC into public.search_all, which unions the indexed surfaces --
  * neighbourhoods, building titles, document bodies, table rows and notes --
- * and runs SECURITY INVOKER, so RLS filters the results without this action
- * having to think about it.
+ * and is scoped to one city by its `p_city_id` argument.
  */
 
 export type SearchKind = Database["public"]["Enums"]["search_kind"];

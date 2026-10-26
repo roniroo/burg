@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/db/server";
 import { linkedBuildingIds, plaintextFromDoc } from "@/lib/tiptap/plaintext";
 import type { Json } from "@/lib/database.types";
 
@@ -48,8 +48,7 @@ export async function saveDocument(input: unknown): Promise<SaveResult> {
   // --- reconcile the wiki links -------------------------------------------
   const referenced = linkedBuildingIds(content as Json).filter((id) => id !== buildingId);
 
-  // Only link to buildings that actually exist and are visible to this user;
-  // RLS makes the second half automatic.
+  // Only link to buildings that actually exist.
   const { data: valid } = await supabase.from("buildings").select("id").in("id", referenced.length ? referenced : ["00000000-0000-0000-0000-000000000000"]);
   const desired = new Set((valid ?? []).map((b) => b.id));
 

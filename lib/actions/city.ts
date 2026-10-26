@@ -1,12 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
 import { z } from "zod";
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/db/server";
 import { canPlace, type Footprint, type Terrain } from "@/lib/placement";
-import { SPRITE_FOR_TYPE, spriteFootprint, type SpriteVariant } from "@/lib/sprites";
+import { SPRITE_FOR_TYPE, spriteFootprint, type SpriteKey, type SpriteVariant } from "@/lib/sprites";
 import type { Json } from "@/lib/database.types";
-import { capReached, capViolation, FREE_LIMITS } from "@/lib/plan";
+import { ACTIVE_CITY_COOKIE } from "@/lib/queries";
 
 /**
  * City-shaping actions: placing buildings, founding neighbourhoods, moving and
@@ -22,23 +23,6 @@ export type ActionResult<T = undefined> =
   | ({ ok: true } & (T extends undefined ? object : { data: T }))
   | { ok: false; error: string };
 
-/**
- * Is this city on the paid plan?
- *
- * Asked through the RPC rather than by reading `subscriptions`, because the
- * plan belongs to the city's owner and an editor cannot read the owner's row.
- * A failed call answers "not paid", which caps an editor who should not have
- * been capped -- the safe direction, since the alternative is handing out the
- * paid plan whenever the database hiccups.
- */
-async function cityIsPaid(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  cityId: string,
-): Promise<boolean> {
-  const { data } = await supabase.rpc("city_is_paid", { target_city: cityId });
-  return data === true;
-}
-
 const ARTIFACT_TYPES = ["doc", "table", "board", "canvas", "kiosk"] as const;
 
 const createBuildingSchema = z.object({
@@ -48,6 +32,8 @@ const createBuildingSchema = z.object({
   tileX: z.number().int().min(0).max(511),
   tileY: z.number().int().min(0).max(511),
   spriteVariant: z.number().int().min(1).max(3).default(1),
+  /** A sprite from the library to build it in, instead of its usual look. */
+  customSpriteId: z.uuid().nullable().default(null),
 });
 
 /** Everything needed to validate a lot, fetched once. */
@@ -93,11 +79,22 @@ export async function createBuilding(input: unknown): Promise<ActionResult<{ id:
   const context = await placementContext(supabase, p.neighborhoodId);
   if (!context) return { ok: false, error: "That neighbourhood no longer exists." };
 
-  // The sprite recipe owns the shape. A lot is validated against the size the
+  // The sprite owns the shape. A lot is validated against the size the
   // building will actually be drawn at, so nothing ever overhangs the tiles it
-  // was checked on and depthFor() sorts it against the right neighbours.
+  // was checked on and depthFor() sorts it against the right neighbours. A
+  // custom sprite declares its own lot; otherwise the recipe decides.
   const spriteKey = SPRITE_FOR_TYPE[p.artifactType];
-  const shape = spriteFootprint(spriteKey, p.spriteVariant as SpriteVariant);
+  const recipe = spriteFootprint(spriteKey, p.spriteVariant as SpriteVariant);
+  let shape = recipe;
+  if (p.customSpriteId) {
+    const { data: custom } = await supabase
+      .from("custom_sprites")
+      .select("footprint_w, footprint_h")
+      .eq("id", p.customSpriteId)
+      .maybeSingle();
+    if (!custom) return { ok: false, error: "That sprite is no longer in the library." };
+    shape = { w: custom.footprint_w, h: custom.footprint_h, floors: recipe.floors };
+  }
 
   const footprint: Footprint = {
     tile_x: p.tileX,
@@ -105,15 +102,6 @@ export async function createBuilding(input: unknown): Promise<ActionResult<{ id:
     footprint_w: shape.w,
     footprint_h: shape.h,
   };
-
-  // The plan check sits beside the placement check and runs first: somebody at
-  // the cap should hear about the cap, not be sent back to fiddle with a lot
-  // that was never the problem. `occupied` is already every building in the
-  // city, so the count costs nothing. Moving a building is deliberately not
-  // capped -- it does not add one.
-  if (context.occupied.length >= FREE_LIMITS.buildings && !(await cityIsPaid(supabase, context.city.id))) {
-    return { ok: false, error: capReached("building") };
-  }
 
   const verdict = canPlace({
     footprint,
@@ -133,6 +121,7 @@ export async function createBuilding(input: unknown): Promise<ActionResult<{ id:
     artifact_type: p.artifactType,
     sprite_key: spriteKey,
     sprite_variant: p.spriteVariant,
+    custom_sprite_id: p.customSpriteId,
     tile_x: p.tileX,
     tile_y: p.tileY,
     footprint_w: shape.w,
@@ -142,11 +131,6 @@ export async function createBuilding(input: unknown): Promise<ActionResult<{ id:
   });
 
   if (error) {
-    // The trigger is the real boundary; reaching it means two tabs both passed
-    // the check above.
-    if (capViolation(error.message) === "building") {
-      return { ok: false, error: capReached("building") };
-    }
     // The exclusion constraint is the last word if a client raced us.
     if (error.code === "23P01" || error.code === "23505") {
       return { ok: false, error: "Something was just built on that lot." };
@@ -242,6 +226,84 @@ function rejectionMessage(reason: string): string {
   }
 }
 
+const lookSchema = z.object({
+  buildingId: z.uuid(),
+  /** Null puts the usual look back. */
+  spriteId: z.uuid().nullable(),
+});
+
+/**
+ * Change what a building looks like.
+ *
+ * A custom sprite brings its own lot, so the building takes that footprint
+ * where it stands, and the same placement check as building and moving decides
+ * whether it fits. Going back to the usual look returns the recipe's lot when
+ * there is room for it, and otherwise keeps the one the building has: the
+ * generated art can draw itself at any size, and refusing to take a sprite off
+ * would be strange.
+ */
+export async function setBuildingLook(input: unknown): Promise<ActionResult> {
+  const parsed = lookSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: "Invalid look." };
+  const { buildingId, spriteId } = parsed.data;
+
+  const supabase = await createClient();
+  const { data: building } = await supabase
+    .from("buildings")
+    .select("id, neighborhood_id, tile_x, tile_y, footprint_w, footprint_h, sprite_key, sprite_variant")
+    .eq("id", buildingId)
+    .maybeSingle();
+  if (!building) return { ok: false, error: "That building no longer exists." };
+
+  let wanted: { w: number; h: number };
+  if (spriteId) {
+    const { data: sprite } = await supabase
+      .from("custom_sprites")
+      .select("footprint_w, footprint_h")
+      .eq("id", spriteId)
+      .maybeSingle();
+    if (!sprite) return { ok: false, error: "That sprite is no longer in the library." };
+    wanted = { w: sprite.footprint_w, h: sprite.footprint_h };
+  } else {
+    wanted = spriteFootprint(building.sprite_key as SpriteKey, building.sprite_variant as SpriteVariant);
+  }
+
+  let footprint = { w: building.footprint_w, h: building.footprint_h };
+  if (wanted.w !== footprint.w || wanted.h !== footprint.h) {
+    const context = await placementContext(supabase, building.neighborhood_id);
+    if (!context) return { ok: false, error: "That neighbourhood no longer exists." };
+
+    const verdict = canPlace({
+      footprint: { tile_x: building.tile_x, tile_y: building.tile_y, footprint_w: wanted.w, footprint_h: wanted.h },
+      region: context.hood,
+      occupied: context.occupied.filter((b) => b.id !== building.id),
+      terrainAt: context.terrainAt,
+      city: context.city,
+    });
+
+    if (verdict.ok) footprint = wanted;
+    else if (spriteId) {
+      return {
+        ok: false,
+        error: `That sprite needs a ${wanted.w}×${wanted.h} lot, and here it would not fit: ${rejectionMessage(verdict.reason).toLowerCase()} Move the building somewhere roomier first.`,
+      };
+    }
+  }
+
+  const { error } = await supabase
+    .from("buildings")
+    .update({ custom_sprite_id: spriteId, footprint_w: footprint.w, footprint_h: footprint.h })
+    .eq("id", building.id);
+  if (error) {
+    if (error.code === "23P01") return { ok: false, error: "Something was just built where it would grow into." };
+    return { ok: false, error: error.message };
+  }
+
+  revalidatePath("/city");
+  revalidatePath(`/b/${building.id}`);
+  return { ok: true };
+}
+
 const moveBuildingSchema = z.object({
   buildingId: z.uuid(),
   tileX: z.number().int().min(0).max(511),
@@ -332,12 +394,6 @@ export async function createNeighborhood(input: unknown): Promise<ActionResult<{
     if (overlaps) return { ok: false, error: "That region overlaps an existing neighbourhood." };
   }
 
-  // Same shape as the building cap: the count is already in hand, so the only
-  // new question is whether the city is paying.
-  if ((existing ?? []).length >= FREE_LIMITS.districts && !(await cityIsPaid(supabase, p.cityId))) {
-    return { ok: false, error: capReached("district") };
-  }
-
   const base = p.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "district";
   const taken = new Set((existing ?? []).map((n) => n.slug));
   let slug = base;
@@ -358,12 +414,7 @@ export async function createNeighborhood(input: unknown): Promise<ActionResult<{
     height: p.height,
     position: (existing ?? []).length,
   });
-  if (error) {
-    if (capViolation(error.message) === "district") {
-      return { ok: false, error: capReached("district") };
-    }
-    return { ok: false, error: error.message };
-  }
+  if (error) return { ok: false, error: error.message };
 
   // Tint the ground so the region reads as a district immediately.
   const tiles = [];
@@ -502,8 +553,8 @@ const deleteBuildingSchema = z.object({ buildingId: z.uuid() });
 /**
  * Demolish one building, and with it everything kept inside.
  *
- * RLS is the authorization boundary -- a non-member's delete matches no rows
- * -- so the read here is for the headline and the cleanup, not for the check.
+ * The read is for the headline and the cleanup; the cascades in the schema
+ * take everything inside with it.
  */
 export async function deleteBuilding(input: unknown): Promise<ActionResult<{ title: string }>> {
   const parsed = deleteBuildingSchema.safeParse(input);
@@ -676,4 +727,37 @@ export async function clearCity(
     ok: true,
     data: { buildings: buildingCount, neighborhoods: scope === "everything" ? hoodCount : 0 },
   };
+}
+
+const switchSchema = z.object({ cityId: z.uuid() });
+
+/**
+ * Look at a different city.
+ *
+ * The cookie is only a preference; `getCurrentCity` re-checks it against the
+ * cities that exist on every read, so a stale value falls back rather than
+ * pointing at nothing. Not `secure`: the app is only ever served over loopback
+ * http, where a secure cookie would never be sent back.
+ */
+export async function switchCity(input: unknown): Promise<ActionResult> {
+  const parsed = switchSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: "Invalid city." };
+
+  const supabase = await createClient();
+  const { data: city } = await supabase
+    .from("cities")
+    .select("id")
+    .eq("id", parsed.data.cityId)
+    .maybeSingle();
+  if (!city) return { ok: false, error: "That city no longer exists." };
+
+  (await cookies()).set(ACTIVE_CITY_COOKIE, city.id, {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 365,
+  });
+
+  revalidatePath("/", "layout");
+  return { ok: true };
 }

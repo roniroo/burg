@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { BUILDING_GLYPH, BUILDING_NOUN, type ArtifactType } from "@/lib/artifacts";
 import { DemolishBuilding } from "@/components/city/demolish-button";
+import { LookPicker, type LookOption } from "@/components/sprites/look-picker";
 
 /**
  * Shared chrome for every building interior.
@@ -18,6 +19,7 @@ export function InteriorShell({
   children,
   wide = false,
   canEdit = true,
+  look,
 }: {
   buildingId: string;
   title: string;
@@ -28,6 +30,8 @@ export function InteriorShell({
   wide?: boolean;
   /** Viewers read an interior; they do not demolish it. */
   canEdit?: boolean;
+  /** What the building wears, and the library to choose from. */
+  look?: { current: string | null; sprites: LookOption[] };
 }) {
   return (
     <div
@@ -55,6 +59,7 @@ export function InteriorShell({
         </nav>
         <div className="flex flex-wrap items-center gap-2">
           {toolbar}
+          {canEdit && look ? <LookPicker buildingId={buildingId} current={look.current} sprites={look.sprites} /> : null}
           {/* Demolition lives up here with the breadcrumb rather than at the
               foot of the page: it is chrome about the building, not part of
               whatever is being edited inside it. */}

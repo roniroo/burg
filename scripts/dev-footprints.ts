@@ -11,19 +11,9 @@
  * stored size. --fix moves rows onto the recipe's shape, skipping any that
  * would then overlap something or leave their district.
  */
-import { config } from "dotenv";
-import { createClient } from "@supabase/supabase-js";
-import type { Database } from "../lib/database.types";
+import { admin } from "./local-db";
 import { spriteFootprint, type SpriteKey, type SpriteVariant } from "../lib/sprites";
 import { canPlace, type Footprint, type Terrain } from "../lib/placement";
-
-config({ path: ".env.local", quiet: true });
-
-const admin = createClient<Database>(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false, autoRefreshToken: false } },
-);
 
 const fix = process.argv.includes("--fix");
 

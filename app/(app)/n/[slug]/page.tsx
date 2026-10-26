@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/db/server";
 import { BUILDING_GLYPH, BUILDING_NOUN } from "@/lib/artifacts";
 import { RegionForm } from "@/components/map/region-form";
 import { DemolishBuilding, DissolveDistrict } from "@/components/city/demolish-button";

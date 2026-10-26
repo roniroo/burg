@@ -1,14 +1,7 @@
 import { cookies } from "next/headers";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getOwner } from "@/lib/db/server";
 import type { Database } from "@/lib/database.types";
-import {
-  allowancesFor,
-  FREE_PLAN,
-  isEntitled,
-  type Allowances,
-  type Plan,
-  type Usage,
-} from "@/lib/plan";
+import type { CustomSpriteMeta } from "@/lib/custom-sprites";
 
 /** Which of the cities you can reach you are currently looking at. */
 export const ACTIVE_CITY_COOKIE = "burg-city";
@@ -23,21 +16,19 @@ export type NeighborhoodStatus = Database["public"]["Enums"]["neighborhood_statu
 export type CityRole = Database["public"]["Enums"]["city_role"];
 
 /**
- * Every city this user can reach — their own, plus any they were invited to.
+ * Every city on this machine, with the owner's role in each.
  *
- * RLS does the filtering: `cities_select` is membership, so this cannot return
- * a city the caller is not a member of.
+ * On the hosted service RLS narrowed this to the cities you were a member of.
+ * Here everything belongs to one person, so it is simply all of them; the role
+ * still comes from `city_members`, which is what decides whether the building
+ * controls are shown.
  */
 export async function getReachableCities(): Promise<Array<City & { role: CityRole }>> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return [];
+  const [supabase, owner] = await Promise.all([createClient(), getOwner()]);
 
   const [{ data: cities }, { data: memberships }] = await Promise.all([
     supabase.from("cities").select("*").order("created_at"),
-    supabase.from("city_members").select("city_id, role").eq("user_id", user.id),
+    supabase.from("city_members").select("city_id, role").eq("user_id", owner.id),
   ]);
 
   const roleFor = new Map((memberships ?? []).map((m) => [m.city_id, m.role]));
@@ -63,77 +54,17 @@ export async function getCurrentCity(): Promise<City | null> {
   return reachable.find((c) => c.role === "owner") ?? reachable[0] ?? null;
 }
 
-/** What the signed-in user may do in a city. */
+/** What the owner may do in a city -- always `owner` for a city they founded. */
 export async function getCityRole(cityId: string): Promise<CityRole | null> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
+  const [supabase, owner] = await Promise.all([createClient(), getOwner()]);
 
   const { data } = await supabase
     .from("city_members")
     .select("role")
     .eq("city_id", cityId)
-    .eq("user_id", user.id)
+    .eq("user_id", owner.id)
     .maybeSingle();
   return data?.role ?? null;
-}
-
-export type CityPerson = {
-  userId: string;
-  name: string;
-  role: CityRole;
-  isYou: boolean;
-};
-
-export type CityInvite = {
-  id: string;
-  email: string;
-  role: CityRole;
-};
-
-/**
- * Who is in a city, and who has been asked.
- *
- * Names come from `profiles`, which co-members can read because of
- * `burg.shares_a_city_with`. A member whose profile row is somehow missing is
- * still listed — a people page that silently omits someone with access would
- * be worse than one showing "Someone".
- */
-export async function getCityPeople(
-  cityId: string,
-): Promise<{ people: CityPerson[]; invites: CityInvite[] }> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const [{ data: members }, { data: invites }] = await Promise.all([
-    supabase.from("city_members").select("user_id, role").eq("city_id", cityId),
-    supabase.from("city_invites").select("id, email, role").eq("city_id", cityId).order("created_at"),
-  ]);
-
-  const ids = (members ?? []).map((m) => m.user_id);
-  const { data: profiles } = ids.length
-    ? await supabase.from("profiles").select("id, display_name").in("id", ids)
-    : { data: [] };
-  const nameFor = new Map((profiles ?? []).map((p) => [p.id, p.display_name]));
-
-  const people = (members ?? [])
-    .map((m) => ({
-      userId: m.user_id,
-      name: nameFor.get(m.user_id)?.trim() || "Someone",
-      role: m.role,
-      isYou: m.user_id === user?.id,
-    }))
-    // Owner first, then editors, then viewers; you are always easy to find.
-    .sort((a, b) => {
-      const rank = { owner: 0, editor: 1, viewer: 2 } as const;
-      return rank[a.role] - rank[b.role] || a.name.localeCompare(b.name);
-    });
-
-  return { people, invites: invites ?? [] };
 }
 
 export type CityTree = {
@@ -216,63 +147,25 @@ export async function getConnections(cityId: string): Promise<Connection[]> {
 // can import them without pulling this server-only module in with them.
 export { BUILDING_GLYPH, BUILDING_NOUN } from "@/lib/artifacts";
 
-/**
- * The plan a city is on, what it has used, and what that leaves.
- *
- * Read through `city_is_paid` rather than from `subscriptions` directly: the
- * plan belongs to the city's *owner*, and a collaborator has no read on
- * somebody else's billing row. The RPC answers the one boolean they are
- * entitled to know and nothing else.
- *
- * Counts are `head: true` counts rather than fetched rows -- the caller wants
- * two numbers, not fifty buildings.
- */
-export async function getCityPlan(cityId: string): Promise<{
-  paid: boolean;
-  usage: Usage;
-  allowances: Allowances;
-}> {
-  const supabase = await createClient();
+export type LibrarySprite = CustomSpriteMeta & { uses: number };
 
-  const [{ data: paid }, districts, buildings] = await Promise.all([
-    supabase.rpc("city_is_paid", { target_city: cityId }),
-    supabase.from("neighborhoods").select("*", { count: "exact", head: true }).eq("city_id", cityId),
-    supabase.from("buildings").select("*", { count: "exact", head: true }).eq("city_id", cityId),
+/**
+ * The sprite library: everything about each sprite except its image, which
+ * the map fetches by id, and how many buildings -- in any city -- wear it.
+ */
+export async function getCustomSprites(): Promise<LibrarySprite[]> {
+  const supabase = await createClient();
+  const [{ data: sprites }, { data: worn }] = await Promise.all([
+    supabase
+      .from("custom_sprites")
+      .select("id, name, width, height, footprint_w, footprint_h, hit_area")
+      .order("created_at"),
+    supabase.from("buildings").select("custom_sprite_id").not("custom_sprite_id", "is", null),
   ]);
 
-  const usage: Usage = {
-    districts: districts.count ?? 0,
-    buildings: buildings.count ?? 0,
-  };
-
-  return { paid: paid === true, usage, allowances: allowancesFor(paid === true, usage) };
-}
-
-/**
- * The signed-in user's own subscription, for the plan page.
- *
- * Only ever their own: `subscriptions_select_own` is the only policy on the
- * table, so this returns nothing for anybody else's row however it is asked.
- */
-export async function getMyPlan(): Promise<Plan> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return FREE_PLAN;
-
-  const { data } = await supabase
-    .from("subscriptions")
-    .select("status, current_period_end, cancel_at_period_end")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  if (!data) return FREE_PLAN;
-
-  return {
-    paid: isEntitled(data.status),
-    status: data.status,
-    currentPeriodEnd: data.current_period_end,
-    cancelAtPeriodEnd: data.cancel_at_period_end,
-  };
+  const uses = new Map<string, number>();
+  for (const b of worn ?? []) {
+    if (b.custom_sprite_id) uses.set(b.custom_sprite_id, (uses.get(b.custom_sprite_id) ?? 0) + 1);
+  }
+  return (sprites ?? []).map((sprite) => ({ ...sprite, uses: uses.get(sprite.id) ?? 0 }));
 }

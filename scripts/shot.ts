@@ -3,15 +3,10 @@
  *   npx tsx scripts/shot.ts /city city.png [--reduced-motion]
  */
 import { chromium } from "playwright";
-import { readFileSync } from "node:fs";
 
 const path = process.argv[2] ?? "/city";
 const out = process.argv[3] ?? "shot.png";
 const reduced = process.argv.includes("--reduced-motion");
-
-const cookieLine = readFileSync("/tmp/burg-cookie.txt", "utf-8").trim();
-const eq = cookieLine.indexOf("=");
-const [name, value] = [cookieLine.slice(0, eq), cookieLine.slice(eq + 1)];
 
 const browser = await chromium.launch();
 const context = await browser.newContext({
@@ -19,7 +14,6 @@ const context = await browser.newContext({
   deviceScaleFactor: 1,
   reducedMotion: reduced ? "reduce" : "no-preference",
 });
-await context.addCookies([{ name, value, domain: "localhost", path: "/" }]);
 
 const page = await context.newPage();
 const errors: string[] = [];

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { createClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/db/server";
 import { gateToward, regionCentre, solveRoute, type PathTile, type RoadGrid } from "@/lib/roads";
 import type { Terrain } from "@/lib/placement";
 import type { Json } from "@/lib/database.types";

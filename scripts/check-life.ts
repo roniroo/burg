@@ -1,11 +1,6 @@
 /** Phase 6: day/night, ambient loops, the ticker, and the command palette. */
 import { chromium } from "playwright";
-import { readFileSync } from "node:fs";
 import { untilCount } from "./until";
-
-const cookieLine = readFileSync("/tmp/burg-cookie.txt", "utf-8").trim();
-const eq = cookieLine.indexOf("=");
-const cookie = { name: cookieLine.slice(0, eq), value: cookieLine.slice(eq + 1), domain: "localhost", path: "/" };
 
 const results: string[] = [];
 const check = (n: string, ok: boolean, d = "") => {
@@ -22,7 +17,6 @@ async function openCity(reduced: boolean, clockHour?: number) {
     viewport: { width: 1400, height: 950 },
     reducedMotion: reduced ? "reduce" : "no-preference",
   });
-  await context.addCookies([cookie]);
   const page = await context.newPage();
   page.on("pageerror", (e) => errors.push(String(e)));
 

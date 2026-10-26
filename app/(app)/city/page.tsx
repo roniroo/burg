@@ -1,5 +1,5 @@
-import { createClient } from "@/lib/supabase/server";
-import { getCityRole, getCurrentCity } from "@/lib/queries";
+import { createClient } from "@/lib/db/server";
+import { getCityRole, getCurrentCity, getCustomSprites } from "@/lib/queries";
 import { CityMap } from "@/components/map/city-map";
 import type { MapRoute } from "@/components/map/road-layer";
 import type { RouteLink } from "@/components/map/connections-panel";
@@ -18,12 +18,12 @@ export default async function CityPage() {
   if (!city) {
     return (
       <p className="p-8 font-body text-sm text-stone">
-        No city yet. Sign out and back in to have one founded for you.
+        No city yet. Quit Burg and open it again to have one founded for you.
       </p>
     );
   }
 
-  const role = await getCityRole(city.id);
+  const [role, customSprites] = await Promise.all([getCityRole(city.id), getCustomSprites()]);
 
   const supabase = await createClient();
   const [{ data: neighborhoods }, { data: buildings }, { data: tiles }, { data: routes }, { data: links }] =
@@ -36,7 +36,7 @@ export default async function CityPage() {
       supabase
         .from("buildings")
         .select(
-          "id, title, artifact_type, sprite_key, sprite_variant, tile_x, tile_y, footprint_w, footprint_h, floors, neighborhood_id",
+          "id, title, artifact_type, sprite_key, sprite_variant, tile_x, tile_y, footprint_w, footprint_h, floors, neighborhood_id, custom_sprite_id",
         )
         .eq("city_id", city.id),
       supabase.from("tiles").select("x, y, terrain, neighborhood_id").eq("city_id", city.id),
@@ -104,6 +104,7 @@ export default async function CityPage() {
         cityHeight={city.height}
         neighborhoods={neighborhoods ?? []}
         buildings={buildings ?? []}
+        customSprites={customSprites}
         tiles={tiles ?? []}
         routes={solved}
         routeLinks={routeLinks}

@@ -1,22 +1,8 @@
 /** Build mode: ghost, validity, placement, construction, keyboard path. */
 import { chromium } from "playwright";
-import { readFileSync } from "node:fs";
-import { config } from "dotenv";
-import { createClient } from "@supabase/supabase-js";
-import type { Database } from "../lib/database.types";
+import { admin } from "./local-db";
 import { smokeCity } from "./smoke-city";
 import { until, untilCount, untilText } from "./until";
-
-config({ path: ".env.local", quiet: true });
-const admin = createClient<Database>(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false, autoRefreshToken: false } },
-);
-
-const cookieLine = readFileSync("/tmp/burg-cookie.txt", "utf-8").trim();
-const eq = cookieLine.indexOf("=");
-const cookie = { name: cookieLine.slice(0, eq), value: cookieLine.slice(eq + 1), domain: "localhost", path: "/" };
 
 // Every query below is scoped to this city: a real city on the same project
 // must not be counted into an assertion, let alone written to.
@@ -31,7 +17,6 @@ const check = (n: string, ok: boolean, d = "") => {
 
 const browser = await chromium.launch();
 const context = await browser.newContext({ viewport: { width: 1400, height: 950 } });
-await context.addCookies([cookie]);
 const page = await context.newPage();
 const errors: string[] = [];
 page.on("pageerror", (e) => errors.push(String(e)));
@@ -137,7 +122,6 @@ const dup = await admin.from("buildings").insert({
   tile_y: made!.tile_y,
 });
 check("the database refuses a second building on that lot", !!dup.error, dup.error?.code ?? "no error");
-
 
 // --- district creation ---------------------------------------------------
 await page.goto("http://localhost:3000/city", { waitUntil: "networkidle" });

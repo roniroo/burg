@@ -17,7 +17,7 @@ import { deleteBuilding, deleteNeighborhood } from "@/lib/actions/city";
 
 const BUTTON = "border-2 border-ink px-2 py-1 font-pixel text-[10px] uppercase shadow-hard disabled:opacity-50";
 
-function ConfirmPair({
+export function ConfirmPair({
   idle,
   armed,
   busy,

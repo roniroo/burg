@@ -1,9 +1,16 @@
 "use client";
 
 import { BUILDING_GLYPH, BUILDING_NOUN, type ArtifactType } from "@/lib/artifacts";
+import type { CustomSpriteMeta } from "@/lib/custom-sprites";
 
 export type BuildDraft =
-  | { kind: "building"; artifactType: ArtifactType; title: string }
+  | {
+      kind: "building";
+      artifactType: ArtifactType;
+      title: string;
+      /** A sprite from the library to build it in; null is the usual look. */
+      spriteId: string | null;
+    }
   | { kind: "district"; name: string; biome: Biome; width: number; height: number };
 
 export type Biome = "downtown" | "harbor" | "forest" | "desert" | "snow";
@@ -20,11 +27,14 @@ const TYPES: ArtifactType[] = ["doc", "table", "board", "kiosk", "canvas"];
  */
 export function BuildBar({
   draft,
+  sprites,
   onChange,
   onCancel,
   hint,
 }: {
   draft: BuildDraft;
+  /** The sprite library. The Look picker only appears when it has something in it. */
+  sprites: CustomSpriteMeta[];
   onChange: (next: BuildDraft) => void;
   onCancel: () => void;
   hint: string | null;
@@ -37,7 +47,7 @@ export function BuildBar({
           role="radio"
           aria-checked={draft.kind === "building"}
           onClick={() =>
-            onChange({ kind: "building", artifactType: "doc", title: "" })
+            onChange({ kind: "building", artifactType: "doc", title: "", spriteId: null })
           }
           className="border-2 border-ink px-2 py-1 font-pixel text-[10px] uppercase shadow-hard"
           style={{ backgroundColor: draft.kind === "building" ? "var(--color-gold)" : "var(--color-snow)" }}
@@ -93,6 +103,27 @@ export function BuildBar({
             placeholder="Name it…"
             className="w-48 border-2 border-ink bg-snow px-2 py-1 font-body text-sm"
           />
+
+          {sprites.length > 0 ? (
+            <>
+              <label htmlFor="build-look" className="font-pixel text-[10px] uppercase text-stone">
+                Look
+              </label>
+              <select
+                id="build-look"
+                value={draft.spriteId ?? ""}
+                onChange={(e) => onChange({ ...draft, spriteId: e.target.value || null })}
+                className="border-2 border-ink bg-snow px-2 py-1 font-pixel text-[10px] uppercase"
+              >
+                <option value="">Usual</option>
+                {sprites.map((sprite) => (
+                  <option key={sprite.id} value={sprite.id}>
+                    {sprite.name} ({sprite.footprint_w}×{sprite.footprint_h})
+                  </option>
+                ))}
+              </select>
+            </>
+          ) : null}
         </>
       ) : (
         <>

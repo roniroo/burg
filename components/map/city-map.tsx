@@ -44,6 +44,8 @@ import {
 import { propAt } from "@/lib/props";
 import { BUILDING_NOUN } from "@/lib/artifacts";
 import { Sprite } from "./sprite";
+import { CustomSprite } from "@/components/sprites/custom-sprite";
+import { spriteLayout, type CustomSpriteMeta } from "@/lib/custom-sprites";
 import type { MapBuilding, MapNeighborhood, MapTile } from "./types";
 
 type Props = {
@@ -52,6 +54,8 @@ type Props = {
   cityHeight: number;
   neighborhoods: MapNeighborhood[];
   buildings: MapBuilding[];
+  /** The sprite library, without images; the map fetches each by id. */
+  customSprites: CustomSpriteMeta[];
   tiles: MapTile[];
   routes: MapRoute[];
   routeLinks: Record<string, RouteLink[]>;
@@ -81,6 +85,7 @@ export function CityMap({
   cityHeight,
   neighborhoods,
   buildings,
+  customSprites,
   tiles,
   routes,
   routeLinks,
@@ -278,13 +283,16 @@ export function CityMap({
    * The shape the drafted building will be drawn at. The sprite recipe owns
    * it, so the ghost, the lot check and the row the server writes all agree.
    */
-  const draftShape = useMemo(
-    () =>
-      draft?.kind === "building"
-        ? spriteFootprint(SPRITE_FOR_TYPE[draft.artifactType], 1)
-        : { w: 1, h: 1, floors: 1 },
-    [draft],
-  );
+  const spriteById = useMemo(() => new Map(customSprites.map((s) => [s.id, s])), [customSprites]);
+
+  const draftSprite = draft?.kind === "building" && draft.spriteId ? (spriteById.get(draft.spriteId) ?? null) : null;
+
+  const draftShape = useMemo(() => {
+    if (draft?.kind !== "building") return { w: 1, h: 1, floors: 1 };
+    const recipe = spriteFootprint(SPRITE_FOR_TYPE[draft.artifactType], 1);
+    // A custom sprite brings its own lot, exactly as createBuilding will read it.
+    return draftSprite ? { w: draftSprite.footprint_w, h: draftSprite.footprint_h, floors: recipe.floors } : recipe;
+  }, [draft, draftSprite]);
 
   const ghostVerdict = useMemo(
     () => (ghost && draft?.kind === "building" ? verdictFor(ghost, draftShape) : null),
@@ -325,7 +333,7 @@ export function CityMap({
     (): BuildDraft =>
       neighborhoods.length === 0
         ? { kind: "district", name: "", biome: "downtown", width: 8, height: 6 }
-        : { kind: "building", artifactType: "doc", title: "" },
+        : { kind: "building", artifactType: "doc", title: "", spriteId: null },
     [neighborhoods.length],
   );
 
@@ -601,6 +609,7 @@ export function CityMap({
         artifactType: draft.artifactType,
         tileX: tile.x,
         tileY: tile.y,
+        customSpriteId: draft.spriteId,
       });
 
       if (!result.ok) {
@@ -877,13 +886,13 @@ export function CityMap({
           const key = (b.sprite_key as SpriteKey) in SPRITE_FOR_TYPE_VALUES
             ? (b.sprite_key as SpriteKey)
             : SPRITE_FOR_TYPE[b.artifact_type];
-          const geometry = buildingSprite(
-            key,
-            (b.sprite_variant as SpriteVariant) ?? 1,
-            b.footprint_w,
-            b.footprint_h,
-            b.floors,
-          );
+          // A building wearing a sprite from the library is laid out by that
+          // sprite; one whose sprite has gone draws its usual self.
+          const custom = b.custom_sprite_id ? spriteById.get(b.custom_sprite_id) : undefined;
+          const builtIn = custom
+            ? null
+            : buildingSprite(key, (b.sprite_variant as SpriteVariant) ?? 1, b.footprint_w, b.footprint_h, b.floors);
+          const geometry = builtIn ?? spriteLayout(custom!);
           const isEntering = entering === b.id;
           const isCondemned = condemned?.kind === "building" && condemned.id === b.id;
 
@@ -931,7 +940,7 @@ export function CityMap({
               }}
             >
               <span className="block transition-transform duration-150 group-hover:-translate-y-0.5 group-focus-visible:-translate-y-0.5">
-                <Sprite geometry={geometry} />
+                {builtIn ? <Sprite geometry={builtIn} /> : <CustomSprite sprite={custom!} />}
               </span>
               <span className="pointer-events-none absolute left-1/2 top-0 hidden -translate-x-1/2 -translate-y-full whitespace-nowrap border-2 border-ink bg-paper px-1 font-pixel text-[10px] uppercase text-ink shadow-hard group-hover:block group-focus-visible:block">
                 {b.title}
@@ -947,6 +956,7 @@ export function CityMap({
             shape={draftShape}
             valid={ghostVerdict?.ok ?? false}
             artifactType={draft.artifactType}
+            sprite={draftSprite}
             biome={ghostVerdict?.hood?.biome}
           />
         ) : null}
@@ -979,6 +989,7 @@ export function CityMap({
         <div data-map-chrome className="pointer-events-none absolute bottom-3 left-3 z-10 max-w-[min(46rem,calc(100%-1.5rem))]">
           <BuildBar
             draft={draft}
+            sprites={customSprites}
             onChange={setDraft}
             onCancel={() => {
               setDraft(null);
@@ -1077,23 +1088,22 @@ function GhostLot({
   shape,
   valid,
   artifactType,
+  sprite,
   biome,
 }: {
   tile: { x: number; y: number };
   shape: { w: number; h: number; floors: number };
   valid: boolean;
   artifactType: MapBuilding["artifact_type"];
+  /** The library sprite it will be built in, if any. */
+  sprite: CustomSpriteMeta | null;
   biome: string | undefined;
 }) {
   const screen = tileToScreen(tile.x, tile.y);
-  const geometry = buildingSprite(
-    SPRITE_FOR_TYPE[artifactType],
-    1,
-    shape.w,
-    shape.h,
-    shape.floors,
-    "ghost",
-  );
+  const builtIn = sprite
+    ? null
+    : buildingSprite(SPRITE_FOR_TYPE[artifactType], 1, shape.w, shape.h, shape.floors, "ghost");
+  const geometry = builtIn ?? spriteLayout(sprite!);
 
   // Every tile the building would stand on, not just the one under the cursor.
   const lot: Array<{ x: number; y: number }> = [];
@@ -1144,7 +1154,7 @@ function GhostLot({
           opacity: valid ? 1 : 0.55,
         }}
       >
-        <Sprite geometry={geometry} />
+        {builtIn ? <Sprite geometry={builtIn} /> : <CustomSprite sprite={sprite!} opacity={0.6} />}
       </div>
     </>
   );

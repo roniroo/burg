@@ -2,8 +2,6 @@ import Link from "next/link";
 import {
   BUILDING_GLYPH,
   BUILDING_NOUN,
-  getCityPeople,
-  getCityPlan,
   getCityRole,
   getCityTree,
   getConnections,
@@ -11,7 +9,6 @@ import {
 } from "@/lib/queries";
 import { DemolishBuilding, DissolveDistrict } from "@/components/city/demolish-button";
 import { StartFresh } from "@/components/city/start-fresh";
-import { People } from "@/components/city/people";
 
 export const metadata = { title: "Directory — Burg" };
 
@@ -26,12 +23,10 @@ export default async function DirectoryPage() {
     return <p className="p-8 font-body text-sm text-stone">No city yet.</p>;
   }
 
-  const [tree, connections, role, { people, invites }, plan] = await Promise.all([
+  const [tree, connections, role] = await Promise.all([
     getCityTree(city.id),
     getConnections(city.id),
     getCityRole(city.id),
-    getCityPeople(city.id),
-    getCityPlan(city.id),
   ]);
   if (!tree) return null;
 
@@ -161,15 +156,6 @@ export default async function DirectoryPage() {
           </table>
         </div>
       </section>
-
-      <People
-        cityId={city.id}
-        cityName={tree.city.name}
-        role={role ?? "viewer"}
-        people={people}
-        invites={invites}
-        paid={plan.paid}
-      />
 
       {role === "owner" ? (
       <section aria-labelledby="start-fresh" className="mt-10 mb-6">

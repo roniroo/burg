@@ -13,6 +13,7 @@ export type MapBuilding = Pick<
   | "footprint_h"
   | "floors"
   | "neighborhood_id"
+  | "custom_sprite_id"
 >;
 
 export type MapNeighborhood = Pick<

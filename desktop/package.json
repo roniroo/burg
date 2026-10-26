@@ -1,0 +1,9 @@
+{
+  "name": "burg",
+  "productName": "Burg",
+  "version": "0.1.0",
+  "description": "A wiki-and-database workspace wearing an isometric pixel city.",
+  "private": true,
+  "type": "module",
+  "main": "main.mjs"
+}

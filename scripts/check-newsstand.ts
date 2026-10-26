@@ -1,16 +1,10 @@
 /** Newsstand: add a link, confirm OpenGraph title lands, then remove it. */
 import { chromium } from "playwright";
-import { readFileSync } from "node:fs";
 import { untilCount } from "./until";
-
-const cookieLine = readFileSync("/tmp/burg-cookie.txt", "utf-8").trim();
-const eq = cookieLine.indexOf("=");
-const cookie = { name: cookieLine.slice(0, eq), value: cookieLine.slice(eq + 1), domain: "localhost", path: "/" };
 
 const buildingId = process.argv[2]!;
 const browser = await chromium.launch();
 const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-await context.addCookies([cookie]);
 const page = await context.newPage();
 const errors: string[] = [];
 page.on("pageerror", (e) => errors.push(String(e)));

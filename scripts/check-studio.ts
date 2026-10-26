@@ -1,23 +1,9 @@
 /** Phase 7: the Studio. Drawing, moving, snapping, deleting, persistence. */
 import { chromium } from "playwright";
-import { readFileSync } from "node:fs";
-import { config } from "dotenv";
-import { createClient } from "@supabase/supabase-js";
-import type { Database } from "../lib/database.types";
+import { admin } from "./local-db";
 import { smokeCity } from "./smoke-city";
 import { spriteFootprint } from "../lib/sprites";
 import { until, untilCount } from "./until";
-
-config({ path: ".env.local", quiet: true });
-const admin = createClient<Database>(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false, autoRefreshToken: false } },
-);
-
-const cookieLine = readFileSync("/tmp/burg-cookie.txt", "utf-8").trim();
-const eq = cookieLine.indexOf("=");
-const cookie = { name: cookieLine.slice(0, eq), value: cookieLine.slice(eq + 1), domain: "localhost", path: "/" };
 
 const results: string[] = [];
 const check = (n: string, ok: boolean, d = "") => {
@@ -74,7 +60,6 @@ await admin.from("canvases").insert({ building_id: studioId, city_id: city.id })
 
 const browser = await chromium.launch();
 const context = await browser.newContext({ viewport: { width: 1400, height: 950 } });
-await context.addCookies([cookie]);
 const page = await context.newPage();
 const errors: string[] = [];
 page.on("pageerror", (e) => errors.push(String(e)));
