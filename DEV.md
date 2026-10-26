@@ -12,7 +12,9 @@ work on it, and as **Burg.app** when you use it.
 The two never share a directory, and nothing in the repo can reach the app's.
 
 The hosted version — Render, Supabase, Stripe, sign-in, sharing — is preserved
-at the git tag **`hosted-final`**.
+at the git tag **`hosted-final`**. Render and Supabase were shut down on
+2026-10-26, after the real city had been copied home and checked row for row
+against the hosted copy; nothing in the repo deploys anywhere any more.
 
 ---
 
@@ -188,25 +190,6 @@ directory, which is how to try something without touching the real city.
 The data folder *is* the database. Quit Burg, then copy the folder somewhere.
 Restoring is quitting Burg and copying it back. Do not copy it while Burg is
 open: the files are mid-write.
-
-### Bringing a city over from the hosted version
-
-```bash
-npm run import:hosted -- --email you@example.com --dry-run   # counts, writes nothing
-npm run import:hosted -- --email you@example.com             # into the app's folder
-```
-
-Quit Burg first. It needs `NEXT_PUBLIC_SUPABASE_URL` and
-`SUPABASE_SERVICE_ROLE_KEY` in `.env.local`, and only ever reads the hosted
-project. It copies every city that address owns, keeping its user id so every
-row still points at the right person, and leaves out invitations, other
-people's memberships and billing. Rows go in inside one transaction with
-triggers off, the way a restore is done, and the transaction only commits if
-every count matches and every foreign key resolves. `--replace` allows it to
-wipe what is already there; `--data-dir` aims it somewhere else.
-
-`veronica.leigh.head@gmail.com`'s city was imported on 2026-10-25 and checked
-row for row against the hosted copy.
 
 ---
 
@@ -420,7 +403,6 @@ The automated checks do not cover feel. Worth looking at yourself:
 | `scripts/dev-footprints.ts` | Reports buildings whose stored footprint has drifted from the shape their sprite recipe is drawn for; `--fix` writes the recipe's shape back, skipping any that would then overlap. |
 | `scripts/dev-ids.ts` | Prints seeded building ids by artifact type. |
 | `scripts/shot.ts` | Screenshots a route. |
-| `scripts/import-hosted.ts` | `npm run import:hosted`: copies a city from the hosted project into the app. |
 | `scripts/check-*.ts` | The browser check suites. |
 
 ---

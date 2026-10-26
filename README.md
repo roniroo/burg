@@ -34,8 +34,8 @@ npm run dev               # http://localhost:3000, with its own dev database
 npm run desktop:package   # dist-desktop/Burg-<version>-arm64.dmg
 ```
 
-See **[DEV.md](DEV.md)** for the database, the desktop app, backups, the
-import from the hosted version, and the test suites.
+See **[DEV.md](DEV.md)** for the database, the desktop app, backups, and the
+test suites.
 
 ## What is where
 
@@ -62,7 +62,9 @@ the maths.
 ## What changed when it came home
 
 Burg was a hosted service — Render, Supabase, Stripe — until October 2026, and
-that version is preserved at the git tag `hosted-final`. Coming home took out
+that version is preserved at the git tag `hosted-final`. Render and Supabase
+were shut down on 2026-10-26, once the real city was safely home. Coming home
+took out
 everything that only made sense with other people on the other end:
 
 - **Sign-in.** There is one person, so there is nobody to tell apart. The door
@@ -75,8 +77,10 @@ everything that only made sense with other people on the other end:
   hosting costs. With no hosting, all they could still do is stop you building
   your own city, so the `local_only` migration takes them out.
 
-The schema is otherwise exactly the hosted one, and the import
-(`npm run import:hosted`) copied the real city across row for row.
+The schema is otherwise exactly the hosted one, and the real city was copied
+across row for row before the hosted project went. The script that did it,
+`scripts/import-hosted.ts`, was removed once there was nothing left to import
+from; it is in the history.
 
 ## Design rules
 
